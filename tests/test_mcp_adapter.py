@@ -95,6 +95,56 @@ async def test_price_chart_keeps_variant_specific_points():
 
 
 @pytest.mark.asyncio
+async def test_price_chart_unavailable_history_is_an_explicit_outcome():
+    client = StubClient(
+        [
+            {
+                "items": [],
+                "returned": 0,
+                "message": "Digikala is not serving price history for product 7158804 right now.",
+                "suggestion": (
+                    "The history endpoint is refusing requests from the server's network "
+                    "right now, so the trend is unknown."
+                ),
+                "id": 7158804,
+                "current_price_toman": None,
+                "history_available": False,
+            }
+        ]
+    )
+    adapter = DigikalaMCPAdapter(client)  # type: ignore[arg-type]
+    result = await adapter.fetch_price_history("7158804")
+    assert result.points == []
+    assert result.metadata["history_available"] is False
+    assert any("not serving price history" in warning for warning in result.warnings)
+    assert any("refusing requests" in warning for warning in result.warnings)
+
+
+@pytest.mark.asyncio
+async def test_price_chart_accepts_series_under_the_live_items_key():
+    client = StubClient(
+        [
+            {
+                "history_available": True,
+                "current_price_toman": 500,
+                "items": [
+                    {
+                        "variant_id": 7,
+                        "points": [{"day": "2026-10-01", "price_toman": 500}],
+                    }
+                ],
+            }
+        ]
+    )
+    adapter = DigikalaMCPAdapter(client)  # type: ignore[arg-type]
+    result = await adapter.fetch_price_history("123")
+    assert len(result.points) == 1
+    assert result.points[0].price_toman == 500
+    assert result.metadata["history_available"] is True
+    assert result.metadata["current_price_toman"] == 500
+
+
+@pytest.mark.asyncio
 async def test_tool_discovery_requires_relevant_contracts():
     client = StubClient(tools=[{"name": "best_selling"}])
     adapter = DigikalaMCPAdapter(client)  # type: ignore[arg-type]

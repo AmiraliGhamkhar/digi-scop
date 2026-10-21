@@ -291,13 +291,39 @@ def _parse_day(value: Any) -> datetime | None:
             return None
 
 
+PRICE_CHART_WARNING_LIMIT = 10
+
+
 def normalize_price_chart(
     payload: Any,
 ) -> tuple[list[NormalizedPricePoint], list[str], dict[str, Any]]:
     if not isinstance(payload, dict):
         raise NormalizationError("product_price_chart output must be a JSON object")
+    metadata: dict[str, Any] = {
+        "window_days": payload.get("window_days"),
+        "current_price_toman": _nonnegative_int(payload.get("current_price_toman")),
+        "history_available": (
+            payload.get("history_available")
+            if isinstance(payload.get("history_available"), bool)
+            else None
+        ),
+    }
+    # The live service answers a refused or blocked history endpoint with an
+    # explicit flag plus its own explanation, instead of a series collection.
+    # That is an honest "no history" outcome, not a malformed payload.
+    if payload.get("history_available") is False:
+        warnings: list[str] = []
+        for key in ("message", "suggestion"):
+            text = payload.get(key)
+            if isinstance(text, str) and text.strip():
+                warnings.append(" ".join(text.split())[:300])
+        if not warnings:
+            warnings.append("price history is not available for this product right now")
+        return [], warnings, metadata
     raw_series: Any = None
-    for key in ("series", "price_series", "charts", "variants"):
+    # "items" is kept last: it is the live service's generic collection key
+    # (observed on refused history responses), so documented names win.
+    for key in ("series", "price_series", "charts", "variants", "items"):
         if isinstance(payload.get(key), (list, dict)):
             raw_series = payload[key]
             break
@@ -379,8 +405,8 @@ def normalize_price_chart(
                 )
             )
     result.sort(key=lambda point: (point.observed_at, point.variant_key))
-    metadata = {
-        "window_days": payload.get("window_days"),
-        "current_price_toman": _nonnegative_int(payload.get("current_price_toman")),
-    }
+    if len(warnings) > PRICE_CHART_WARNING_LIMIT:
+        hidden = len(warnings) - PRICE_CHART_WARNING_LIMIT
+        warnings = warnings[:PRICE_CHART_WARNING_LIMIT]
+        warnings.append(f"{hidden} further price-chart warnings were suppressed")
     return result, warnings, metadata

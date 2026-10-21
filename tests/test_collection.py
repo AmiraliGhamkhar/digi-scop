@@ -168,13 +168,61 @@ async def test_price_history_import_deduplicates_and_never_creates_rank(
     with session_factory() as db:
         product_id = db.scalar(select(Product.id).where(Product.external_id == "101"))
         rank_count = db.scalar(select(func.count(RankObservation.id)))
-    assert await service.import_price_history(product_id) == 2
-    assert await service.import_price_history(product_id) == 0
+    imported, warnings = await service.import_price_history(product_id)
+    assert imported == 2
+    assert warnings == []
+    reimported, _ = await service.import_price_history(product_id)
+    assert reimported == 0
     with session_factory() as db:
         assert db.scalar(select(func.count(RankObservation.id))) == rank_count
         imported = list(db.scalars(select(Snapshot).where(Snapshot.is_historical_import.is_(True))))
         assert len(imported) == 2
         assert all(point.source == "mcp:product_price_chart" for point in imported)
+
+
+@pytest.mark.asyncio
+async def test_unavailable_price_history_is_reported_without_failing_the_run(
+    session_factory, mock_adapter, settings
+):
+    mock_adapter.price_payloads["101"] = {
+        "history_available": False,
+        "items": [],
+        "returned": 0,
+        "message": "Digikala is not serving price history for product 101 right now.",
+        "suggestion": "The history endpoint is refusing requests right now.",
+    }
+    service = CollectionService(session_factory, mock_adapter, settings)
+    service.ensure_default_scope()
+    scope = service.configured_scopes()[0]
+    outcome = await service.run_scope(scope, limit=3, include_price_history=True)
+    assert outcome.status == "partial"
+    assert outcome.items_saved == 3
+    assert any(
+        "price history product" in warning and "not serving price history" in warning
+        for warning in outcome.warnings
+    )
+
+
+@pytest.mark.asyncio
+async def test_items_fetched_prefers_the_upstream_returned_count(session_factory, settings):
+    payload = {
+        "returned": 3,
+        "items": [
+            {"id": 1, "title": "a"},
+            {"title": "missing stable identity"},
+            {"id": 2, "title": "b"},
+            {"id": 3, "title": "c"},
+        ],
+    }
+    adapter = MockMCPAdapter(ranking_payloads={"global": payload})
+    service = CollectionService(session_factory, adapter, settings)
+    service.ensure_default_scope()
+    scope = service.configured_scopes()[0]
+    outcome = await service.run_scope(scope, limit=10)
+    # The upstream count wins; warnings about skipped rows never inflate it.
+    assert outcome.items_fetched == 3
+    assert outcome.items_saved == 3
+    assert outcome.status == "partial"
 
 
 @pytest.mark.asyncio

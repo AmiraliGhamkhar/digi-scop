@@ -218,9 +218,14 @@ class CollectionService:
                     else:
                         for product_id in product_ids[:history_limit]:
                             try:
-                                imported_points += await self.import_price_history(
+                                imported, history_warnings = await self.import_price_history(
                                     product_id, collection_run_id=run.id
                                 )
+                                imported_points += imported
+                                for history_warning in history_warnings[:10]:
+                                    warnings.append(
+                                        f"price history product {product_id}: {history_warning}"
+                                    )
                             except Exception as exc:  # noqa: BLE001 - isolate optional enrichment
                                 safe = self._safe_error(exc)
                                 warnings.append(f"price history product {product_id}: {safe}")
@@ -237,11 +242,23 @@ class CollectionService:
                     warnings.append("the ranking call returned no valid product observations")
                 status = CollectionStatus.PARTIAL if warnings else CollectionStatus.SUCCESS
                 duration_ms = round((time.monotonic() - started_monotonic) * 1000)
-                reported_fetched = batch.metadata.get("fetched")
+                # Upstream tools report their own card count as ``returned``
+                # (with ``fetched`` as a tolerated alias). Warnings describe
+                # skipped rows; they are not fetched items and never inflate
+                # the count. When upstream reports nothing, the normalized
+                # product count is the honest fallback.
+                reported_fetched = next(
+                    (
+                        value
+                        for key in ("returned", "fetched")
+                        if isinstance(value := batch.metadata.get(key), (int, float))
+                        and not isinstance(value, bool)
+                        and value >= 0
+                    ),
+                    None,
+                )
                 fetched_count = (
-                    int(reported_fetched)
-                    if isinstance(reported_fetched, (int, float)) and reported_fetched >= 0
-                    else len(batch.products) + len(batch.warnings)
+                    int(reported_fetched) if reported_fetched is not None else len(batch.products)
                 )
                 metadata = {
                     **batch.metadata,
@@ -400,7 +417,13 @@ class CollectionService:
         product_id: int,
         *,
         collection_run_id: int | None = None,
-    ) -> int:
+    ) -> tuple[int, list[str]]:
+        """Import one product's price chart; returns saved points and warnings.
+
+        Upstream advisories (for example an explicitly unavailable history
+        window) surface as warnings so the run records why no points arrived.
+        """
+
         with self.session_factory() as session:
             product = session.get(Product, product_id)
             if not product:
@@ -436,7 +459,7 @@ class CollectionService:
                     )
                 )
                 inserted += 1
-        return inserted
+        return inserted, list(batch.warnings)
 
     def _create_run(self, scope: ScopeSpec, limit: int) -> CollectionRun:
         with self.session_factory.begin() as session:
