@@ -9,6 +9,20 @@ The upstream MCP release history is maintained in the
 
 ## Unreleased
 
+### Changed
+
+- The normalizer tests now live in one file. Three cases that had been split
+  across `tests/test_mcp_client.py` and `tests/test_normalizer.py` were
+  consolidated, the duplicated identity-warning assertion was removed, and the
+  two cases that were still distinct (a foreign-host link, an unexpected
+  payload schema) became separate tests.
+- The bounded-retry test for HTTP 503 built a second MCP client and discarded
+  the first one without closing it. One client and one handler now cover the
+  retry and the follow-up initialized notification.
+- Test functions that received a fixture only for its side effect now request
+  it with `usefixtures`, so the dependency stays visible without an unused
+  argument.
+
 ### Fixed
 
 - The product detail view returned the *oldest* 500 stored price points and

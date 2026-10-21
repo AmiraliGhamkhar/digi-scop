@@ -346,8 +346,9 @@ class CollectionService:
             if not run:
                 raise CollectionConfigurationError("collection run does not exist")
             observed_at = as_utc(run.started_at) or utc_now()
-            # Two passes allow a child that precedes its parent in the payload to
-            # acquire the parent relationship on the second pass.
+            # The first pass stores every category. The second pass repeats the
+            # upsert so a child that preceded its parent in the payload can now
+            # find that parent and acquire the relationship.
             for category in batch.categories:
                 ProductService.upsert_category(session, category, observed_at)
             for category in batch.categories:

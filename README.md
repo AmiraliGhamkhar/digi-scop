@@ -281,7 +281,7 @@ errors; migrations and DB constraints/rollback/FKs; collection idempotency and
 locks; all requested analytics edge cases; every REST area, auth, CSV BOM and
 formula protection; and static RTL/responsive frontend contracts.
 
-Current documented baseline: **78 passed, 0 failed**. The normal suite performs
+Current documented baseline: **79 passed, 0 failed**. The normal suite performs
 no live Digikala requests. See [`docs/testing.md`](docs/testing.md) for the test
 matrix, static checks, browser verification, and live-smoke separation.
 

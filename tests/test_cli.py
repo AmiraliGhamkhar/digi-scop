@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+import pytest
 from sqlalchemy import select
 
 from app.models import CollectionRun
@@ -28,8 +29,8 @@ def cli_args(**overrides: Any) -> argparse.Namespace:
 
 def install_cli(monkeypatch, settings, engine, mock_adapter) -> None:
     monkeypatch.setattr(collect, "Settings", lambda: settings)
-    monkeypatch.setattr(collect, "create_database_engine", lambda url: engine)
-    monkeypatch.setattr(collect, "build_adapter", lambda value: mock_adapter)
+    monkeypatch.setattr(collect, "create_database_engine", lambda _url: engine)
+    monkeypatch.setattr(collect, "build_adapter", lambda _value: mock_adapter)
 
 
 def read_outcomes(output: str) -> list[dict[str, Any]]:
@@ -37,8 +38,9 @@ def read_outcomes(output: str) -> list[dict[str, Any]]:
     return json.loads(output[start:])
 
 
+@pytest.mark.usefixtures("seeded_market")
 def test_cli_skips_the_global_scope_when_asked(
-    monkeypatch, capsys, settings, engine, mock_adapter, seeded_market, session_factory
+    monkeypatch, capsys, settings, engine, mock_adapter, session_factory
 ):
     install_cli(monkeypatch, settings, engine, mock_adapter)
     with session_factory() as db:

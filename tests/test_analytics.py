@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
 from app.models import Product, Snapshot
@@ -79,7 +80,8 @@ def test_trends_are_ranking_indicators_not_sales_growth(session_factory, seeded_
     assert "0.55" in result["formula"]
 
 
-def test_current_list_uses_latest_successful_observed_run(session_factory, seeded_market):
+@pytest.mark.usefixtures("seeded_market")
+def test_current_list_uses_latest_successful_observed_run(session_factory):
     with session_factory() as db:
         items, run = AnalyticsService(db).current_rankings()
     assert run.status.value == "success"
@@ -127,9 +129,8 @@ def test_product_detail_keeps_the_newest_observations(session_factory, seeded_ma
     assert observed == sorted(observed)
 
 
-def test_sort_without_a_discriminating_field_keeps_the_observed_rank_order(
-    session_factory, seeded_market
-):
+@pytest.mark.usefixtures("seeded_market")
+def test_sort_without_a_discriminating_field_keeps_the_observed_rank_order(session_factory):
     with session_factory() as db:
         service = AnalyticsService(db)
         fallback = service.filtered_rankings(

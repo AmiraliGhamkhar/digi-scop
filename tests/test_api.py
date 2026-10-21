@@ -56,7 +56,7 @@ def test_rankings_current_and_historical_data_basis(client):
     assert history.json()["items"][0]["observation_count"] >= 2
 
 
-def test_current_rankings_report_the_observed_count(client, seeded_market):
+def test_current_rankings_report_the_observed_count(client):
     response = client.get("/api/rankings", params={"period": "current", "limit": 10})
     assert response.status_code == 200
     counts = {item["external_id"]: item["observation_count"] for item in response.json()["items"]}
@@ -147,7 +147,7 @@ def test_manual_collection_is_disabled_without_configured_token(settings, engine
     assert response.status_code == 503
 
 
-def test_csv_export_has_utf8_bom_filters_and_formula_protection(client, seeded_market):
+def test_csv_export_has_utf8_bom_filters_and_formula_protection(client):
     response = client.get("/api/export.csv", params={"period": "7d", "limit": 50})
     assert response.status_code == 200
     assert response.content.startswith(b"\xef\xbb\xbf")

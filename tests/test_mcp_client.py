@@ -12,7 +12,6 @@ from app.mcp.client import (
     MCPRateLimitError,
     MCPToolError,
 )
-from app.mcp.normalizer import NormalizationError, normalize_ranking_payload
 
 
 def rpc_response(
@@ -221,6 +220,11 @@ async def test_http_503_has_bounded_retry():
 
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
+        body = json.loads(request.content)
+        # The initialized notification is sent after a successful initialize and
+        # must not count as a retry attempt.
+        if body["method"] == "notifications/initialized":
+            return httpx.Response(202)
         attempts += 1
         if attempts < 3:
             return httpx.Response(503, text="busy")
@@ -234,25 +238,6 @@ async def test_http_503_has_bounded_retry():
     client = MCPClient(
         "https://example.test/mcp",
         transport=httpx.MockTransport(handler),
-        max_retries=2,
-        retry_base_seconds=1,
-        sleep=sleep,
-        random_source=lambda: 0,
-    )
-    # The handler also needs to accept the initialized notification after the
-    # successful third initialize request.
-    original_send = handler
-
-    async def complete_handler(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        if body["method"] == "notifications/initialized":
-            return httpx.Response(202)
-        return await original_send(request)
-
-    await client.close()
-    client = MCPClient(
-        "https://example.test/mcp",
-        transport=httpx.MockTransport(complete_handler),
         max_retries=2,
         retry_base_seconds=1,
         sleep=sleep,
@@ -335,30 +320,3 @@ async def test_exhausted_rate_limit_exposes_retry_after():
         await client.initialize()
     assert caught.value.retry_after == 12
     await client.close()
-
-
-def test_normalizer_missing_optional_fields_remain_none():
-    batch = normalize_ranking_payload({"items": [{"id": 9, "title": "کالای ساده"}]})
-    item = batch.products[0]
-    assert item.price_toman is None
-    assert item.rating_stars is None
-    assert item.availability_status is None
-
-
-def test_normalizer_rejects_unexpected_schema_and_unstable_identity():
-    with pytest.raises(NormalizationError, match="items"):
-        normalize_ranking_payload({"products": []})
-    batch = normalize_ranking_payload(
-        {"items": [{"title": "بدون شناسه", "url": "https://evil.example/product/1"}]}
-    )
-    assert batch.products == []
-    assert "stable id" in batch.warnings[0]
-
-
-def test_normalizer_uses_verified_canonical_url_fallback():
-    batch = normalize_ranking_payload(
-        {"items": [{"title": "کالا", "url": "http://www.digikala.com/product/dkp-7788/?x=1"}]}
-    )
-    assert batch.products[0].external_id == "7788"
-    assert batch.products[0].identity_source == "canonical_url_id"
-    assert batch.products[0].url == "https://www.digikala.com/product/dkp-7788/"

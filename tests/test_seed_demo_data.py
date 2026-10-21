@@ -15,7 +15,8 @@ def demo_settings(settings, monkeypatch):
     return settings
 
 
-def test_demo_fixture_can_be_seeded_and_reset(demo_settings, session_factory):
+@pytest.mark.usefixtures("demo_settings")
+def test_demo_fixture_can_be_seeded_and_reset(session_factory):
     seed_demo_data.seed(reset=False)
     with session_factory() as db:
         assert db.scalar(select(func.count(Product.id))) == 12
