@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="داشبورد پایش رتبه و قیمت محصولات دیجی‌کالا بر پایه داده‌های مشاهده‌شده">
+  <title>{{ app_name }} | پایش بازار دیجی‌کالا</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='/css/app.css') }}">
+  <script defer src="{{ url_for('static', path='/vendor/chart.umd.min.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/js/api.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/js/charts.js') }}"></script>
+  <script defer src="{{ url_for('static', path='/js/app.js') }}"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">رفتن به محتوای اصلی</a>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="ناوبری اصلی">
+      <a class="brand" href="#overview" aria-label="صفحه اصلی دیجی‌اسکوپ">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" role="img"><path d="M8 29V18m8 11V11m8 18V16m8 13V7"/><path d="M5 33h30"/></svg>
+        </span>
+        <span><strong>دیجی‌اسکوپ</strong><small>DigiScope</small></span>
+      </a>
+      <nav>
+        <a class="nav-link active" href="#overview"><span aria-hidden="true">⌂</span> نمای کلی</a>
+        <a class="nav-link" href="#rankings"><span aria-hidden="true">≡</span> رتبه‌بندی</a>
+        <a class="nav-link" href="#product-detail"><span aria-hidden="true">⌁</span> تاریخچه محصول</a>
+        <a class="nav-link" href="#collection"><span aria-hidden="true">↻</span> وضعیت جمع‌آوری</a>
+      </nav>
+      <div class="sidebar-note">
+        <span class="eyebrow">مبنای تحلیل</span>
+        <p>رتبه‌های ثبت‌شده در زمان دریافت؛ نه تعداد فروش یا برآورد فروش.</p>
+      </div>
+      <div class="version">نسخه {{ version }}</div>
+    </aside>
+
+    <main id="main-content" class="main-content">
+      <header class="topbar">
+        <button id="menu-button" class="icon-button menu-button" aria-label="نمایش فهرست" aria-expanded="false">☰</button>
+        <div>
+          <p class="eyebrow">هوش بازار دیجی‌کالا</p>
+          <h1>نبض بازار، بر پایه مشاهده</h1>
+        </div>
+        <div class="topbar-status" aria-live="polite">
+          <span id="health-dot" class="status-dot neutral"></span>
+          <span><small>آخرین جمع‌آوری موفق</small><strong id="last-collected">—</strong></span>
+        </div>
+      </header>
+
+      <div id="demo-banner" class="notice notice-demo hidden" role="status">
+        این نما شامل دادهٔ نمایشی توسعه است و دادهٔ زنده دیجی‌کالا نیست.
+      </div>
+      <div id="global-error" class="notice notice-error hidden" role="alert"></div>
+
+      <section id="overview" aria-labelledby="overview-heading">
+        <div class="section-heading">
+          <div><p class="eyebrow">نمای کلی</p><h2 id="overview-heading">وضعیت پایش بازار</h2></div>
+          <span id="data-freshness" class="badge badge-muted">در انتظار داده</span>
+        </div>
+        <div class="metrics-grid">
+          <article class="metric-card">
+            <span class="metric-icon cyan" aria-hidden="true">▦</span>
+            <div><span>محصول پایش‌شده</span><strong id="metric-products">—</strong><small>شناسه یکتای ثبت‌شده</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon blue" aria-hidden="true">↕</span>
+            <div><span>مشاهده رتبه</span><strong id="metric-observations">—</strong><small>رکورد واقعی ذخیره‌شده</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon green" aria-hidden="true">✓</span>
+            <div><span>پوشش ۷ روزه</span><strong id="metric-coverage-7">—</strong><small id="metric-coverage-7-note">بدون تاریخچه</small></div>
+          </article>
+          <article class="metric-card">
+            <span class="metric-icon amber" aria-hidden="true">◷</span>
+            <div><span>پوشش ۳۰ روزه</span><strong id="metric-coverage-30">—</strong><small id="metric-coverage-30-note">بدون تاریخچه</small></div>
+          </article>
+        </div>
+      </section>
+
+      <section id="rankings" class="panel ranking-panel" aria-labelledby="ranking-heading">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">فیلتر و مقایسه</p>
+            <h2 id="ranking-heading">رتبه‌بندی مشاهده‌شده</h2>
+            <p class="muted">هر جایگاه، نتیجه یک دریافت موفق در همان محدوده است.</p>
+          </div>
+          <a id="export-link" class="button secondary" href="/api/export.csv" download>
+            <span aria-hidden="true">⇩</span> خروجی CSV
+          </a>
+        </div>
+
+        <form id="filters" class="filters" aria-label="فیلتر رتبه‌بندی">
+          <fieldset class="period-control">
+            <legend>دوره گزارش</legend>
+            <div class="segmented" role="group" aria-label="دوره گزارش">
+              <button type="button" class="period-button active" data-period="current">اکنون</button>
+              <button type="button" class="period-button" data-period="7d">۷ روز</button>
+              <button type="button" class="period-button" data-period="30d">۳۰ روز</button>
+            </div>
+          </fieldset>
+          <label>محدوده
+            <select id="scope-select">
+              <option value="global">کل بازار</option>
+              <option value="category">دسته‌بندی</option>
+            </select>
+          </label>
+          <label id="category-label" class="hidden">دسته
+            <select id="category-select" disabled><option value="">انتخاب دسته</option></select>
+          </label>
+          <label>تعداد
+            <select id="limit-select">
+              <option value="10">۱۰ محصول</option>
+              <option value="20">۲۰ محصول</option>
+              <option value="50">۵۰ محصول</option>
+            </select>
+          </label>
+          <label>مرتب‌سازی
+            <select id="sort-select">
+              <option value="rank">رتبه فعلی</option>
+              <option value="-rank_improvement">بیشترین بهبود</option>
+              <option value="-observations">بیشترین مشاهده</option>
+              <option value="price">کمترین قیمت</option>
+              <option value="-rating">بیشترین امتیاز</option>
+            </select>
+          </label>
+          <label class="search-label">جست‌وجوی عنوان
+            <span class="input-with-icon"><span aria-hidden="true">⌕</span><input id="search-input" type="search" maxlength="200" placeholder="نام محصول…" autocomplete="off"></span>
+          </label>
+        </form>
+
+        <div id="coverage-notice" class="coverage-strip" aria-live="polite">
+          <span class="status-dot neutral"></span>
+          <strong>داده زنده</strong>
+          <span>برای مقایسه تاریخی، دوره ۷ یا ۳۰ روزه را انتخاب کنید.</span>
+        </div>
+
+        <div class="table-toolbar">
+          <div><strong id="table-title">محصولات برتر فعلی</strong><span id="table-count" class="count-pill">۰ مورد</span></div>
+          <span id="table-updated" class="muted">—</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">جایگاه</th>
+                <th scope="col">محصول</th>
+                <th scope="col">قیمت</th>
+                <th scope="col">تخفیف</th>
+                <th scope="col">امتیاز</th>
+                <th scope="col">رتبه فعلی</th>
+                <th scope="col">تغییر رتبه</th>
+                <th scope="col">مشاهده</th>
+                <th scope="col">آخرین ثبت</th>
+                <th scope="col"><span class="sr-only">پیوند</span></th>
+              </tr>
+            </thead>
+            <tbody id="products-body">
+              <tr><td colspan="10"><div class="loading-state"><span class="spinner"></span> در حال دریافت داده…</div></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination" aria-label="صفحه‌بندی">
+          <button id="next-page" class="button tertiary" type="button">صفحه بعد</button>
+          <span id="page-label">صفحه ۱</span>
+          <button id="prev-page" class="button tertiary" type="button" disabled>صفحه قبل</button>
+        </div>
+      </section>
+
+      <section class="charts-grid" aria-label="نمودارها">
+        <article class="panel chart-panel">
+          <div class="panel-header compact">
+            <div><p class="eyebrow">مسیر جایگاه</p><h2>روند رتبه محصول</h2></div>
+            <span class="legend-note"><i class="legend-line teal"></i> عدد کمتر بهتر است</span>
+          </div>
+          <div class="chart-container"><canvas id="rank-chart" aria-label="نمودار تاریخچه رتبه"></canvas></div>
+          <p id="rank-chart-empty" class="empty-overlay">یک محصول را از جدول انتخاب کنید.</p>
+        </article>
+        <article class="panel chart-panel">
+          <div class="panel-header compact">
+            <div><p class="eyebrow">قیمت ثبت‌شده</p><h2>روند قیمت</h2></div>
+            <span class="legend-note"><i class="legend-line blue"></i> تومان</span>
+          </div>
+          <div class="chart-container"><canvas id="price-chart" aria-label="نمودار تاریخچه قیمت"></canvas></div>
+          <p id="price-chart-empty" class="empty-overlay">داده قیمت برای محصول انتخاب‌شده نمایش داده می‌شود.</p>
+        </article>
+      </section>
+
+      <section id="product-detail" class="panel detail-panel" aria-labelledby="detail-heading">
+        <div class="panel-header">
+          <div>
+            <p class="eyebrow">پرونده محصول</p>
+            <h2 id="detail-heading">جزئیات و پوشش تاریخی</h2>
+          </div>
+          <a id="product-external-link" class="button secondary hidden" href="#" target="_blank" rel="noopener noreferrer">مشاهده در دیجی‌کالا ↗</a>
+        </div>
+        <div id="detail-empty" class="empty-state">
+          <span aria-hidden="true">⌁</span>
+          <strong>محصولی انتخاب نشده است</strong>
+          <p>برای دیدن تاریخچه رتبه و قیمت، یک ردیف جدول را انتخاب کنید.</p>
+        </div>
+        <div id="detail-content" class="hidden">
+          <div class="product-summary">
+            <div class="product-avatar large" id="detail-image-fallback">د</div>
+            <div><h3 id="detail-title">—</h3><p id="detail-id" class="muted">—</p></div>
+          </div>
+          <div class="detail-metrics">
+            <div><span>آخرین قیمت</span><strong id="detail-price">—</strong></div>
+            <div><span>اولین مشاهده</span><strong id="detail-first">—</strong></div>
+            <div><span>آخرین مشاهده</span><strong id="detail-last">—</strong></div>
+            <div><span>رکورد رتبه</span><strong id="detail-rank-count">—</strong></div>
+          </div>
+          <div id="detail-coverage" class="detail-coverage"></div>
+          <p class="integrity-note"><strong>توجه:</strong> تاریخچه قیمت و تاریخچه رتبه دو مجموعه مستقل‌اند. نقطه قیمت به معنی وجود رتبه در همان روز نیست.</p>
+        </div>
+      </section>
+
+      <section id="collection" class="panel collection-panel" aria-labelledby="collection-heading">
+        <div class="panel-header">
+          <div><p class="eyebrow">پایش زیرساخت</p><h2 id="collection-heading">آخرین اجرای جمع‌آوری</h2></div>
+          <button id="refresh-button" class="button tertiary" type="button">↻ تازه‌سازی</button>
+        </div>
+        <div id="collection-list" class="run-list"><div class="loading-state"><span class="spinner"></span> در حال بررسی…</div></div>
+      </section>
+
+      <footer>
+        <p>دیجی‌اسکوپ مستقل از دیجی‌کالا است. قیمت، موجودی و رتبه ممکن است پس از آخرین مشاهده تغییر کرده باشند.</p>
+        <a href="/docs">مستندات API</a>
+      </footer>
+    </main>
+  </div>
+</body>
+</html>

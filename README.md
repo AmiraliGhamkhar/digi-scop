@@ -1,151 +1,369 @@
-# Digikala MCP - shop intelligence for AI agents
+# DigiScope
 
-![Digikala MCP banner](assets/digikala-mcp.png)
+**DigiScope** is a Persian, RTL market-intelligence dashboard for recording and
+analysing observable Digikala product rankings and prices. It is a single
+FastAPI application with a vanilla-JavaScript frontend, SQLite persistence, a
+standalone cron-friendly collector, and a replaceable MCP adapter.
 
-[![Live verify](https://github.com/mmdju/digikala-mcp/actions/workflows/verify.yml/badge.svg)](https://github.com/mmdju/digikala-mcp/actions/workflows/verify.yml)
-![19 tools](https://img.shields.io/badge/tools-19-blue)
-![read-only](https://img.shields.io/badge/access-read--only-brightgreen)
-![no API key](https://img.shields.io/badge/API%20key-not%20needed-lightgrey)
+> **Data integrity:** a rank in DigiScope means an observed position in a list at
+> a recorded time. It is not a sales quantity. Failed collections are not treated
+> as product absences, current ranks are never copied into the past, and missing
+> history remains visibly missing.
 
-A public MCP server that gives AI agents **real data from Digikala** - Iran's largest online marketplace: search, **prices in Toman**, discounts, ratings, sellers, reviews, deals and bestsellers. **Read-only, no key needed.**
+![DigiScope data flow](assets/digikala-mcp.png)
 
-**Live endpoint:** `https://digikala-mcp.mmdju.workers.dev/mcp` (Streamable HTTP)
+## What is implemented
 
-**[نسخه فارسی](README_FA.md)** · **[Examples](examples/sample-calls.md)** · **[Tool reference](docs/tools.md)** · **[Changelog](CHANGELOG.md)**
+- Current global and category ranking observations with 10/20/50 display limits.
+- Coverage-aware rolling 7-day and 30-day reports: average/best/latest rank,
+  earliest-to-latest improvement, presence rate, and observation counts.
+- A documented **ranking-based trend indicator**, explicitly not sales growth.
+- Product details with independent ranking and price timelines.
+- Nullable price, discount, rating, rating count, availability, URL, and image
+  handling; unavailable upstream fields are not fabricated.
+- UTF-8 BOM CSV export with Persian headers and spreadsheet-formula protection.
+- Collection run health, failures, timing, configured scopes, and stale-data state.
+- Authenticated manual collection plus a standalone scheduled collection command.
+- Per-scope cross-process file locks and SQLite foreign keys/WAL/busy timeout.
+- Structured JSON logs, `/health`, `/ready`, OpenAPI docs, and safe browser headers.
+- A deterministic development-only fixture that is visibly labelled in the UI.
 
-## Connect in 30 seconds
+## MCP contract inspection
 
-Any Streamable HTTP MCP client, **one URL**. Cline / Cursor / Claude Desktop (`mcp.json` style):
+The upstream `mmdju/digikala-mcp` repository was inspected at commit
+`927ab481bb2d1292410b1b3858c691a844102c6d`. It is intentionally a showcase
+repository without Worker source. Its docs verify Streamable HTTP, the
+`2024-11-05` handshake used by its examples, 19 read-only tools, text JSON in
+MCP content, no required session, a 20 POST/minute/IP limit, and transient
+Digikala CDN blocks.
 
-```json
-{
-  "mcpServers": {
-    "digikala": { "url": "https://digikala-mcp.mmdju.workers.dev/mcp" }
-  }
-}
+The adapter supports direct JSON and SSE responses, textual and structured tool
+content, optional MCP session IDs, JSON-RPC/tool/HTTP errors, timeouts, bounded
+exponential retries, and `Retry-After`.
+
+The exact inspected findings and relevant tool schemas are in
+[`docs/MCP_INTEGRATION_REPORT.md`](docs/MCP_INTEGRATION_REPORT.md); the upstream
+parameter reference remains in [`docs/tools.md`](docs/tools.md).
+
+### Important upstream limits
+
+- `best_selling` has a documented maximum `limit` of **30** and no page argument,
+  even though its estimated complete list is 50. DigiScope allows a top-50 view
+  but honestly returns only the global observations that the tool exposes and
+  marks a top-50 collection partial. Category `browse_category` supports paging
+  and can collect up to 50.
+- `product_price_chart` offers about 30 daily price points per colour/size, with
+  seller/warranty where supplied. It is not full product history.
+- No inspected tool provides historical bestseller ranks or units sold. Rank
+  history starts when DigiScope starts collecting.
+- The endpoint could not be reached from this restricted build sandbox. The
+  adapter follows the inspected contract and is deterministically tested; run
+  the live check below from the deployment host.
+
+## Architecture
+
+```text
+Browser (Persian RTL, vanilla JS, Chart.js)
+                  │ relative REST/HTML
+                  ▼
+        Single FastAPI process
+         ├── REST + templates/static
+         ├── analytics services
+         ├── collection service
+         └── SQLAlchemy 2 / SQLite
+                  ▲
+                  │ standalone cron command
+                  │
+       Digikala MCP adapter (HTTPX)
+                  │ Streamable HTTP / JSON-RPC
+                  ▼
+   digikala-mcp.mmdju.workers.dev
 ```
 
-Then just talk: **"best Samsung phone under 100 million Toman"**, **"is this laptop any good?"**, **"what is on deal today?"**, **"what is popular in Iran right now?"**.
+The web process does **not** start an in-process scheduler, so multiple worker
+starts cannot duplicate scheduled jobs. Cron invokes a separate command; a
+per-scope file lock also rejects overlap.
 
-No client at hand? The whole protocol is one POST - a real call:
+## Requirements
+
+- Python 3.11+
+- Writable private directory for SQLite and lock files
+- Outbound HTTPS access to the configured MCP endpoint for live collection
+- Cron (recommended) or another external scheduler
+
+## Development setup
 
 ```bash
-curl -sS https://digikala-mcp.mmdju.workers.dev/mcp \
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+
+# Set a long random ADMIN_TOKEN in .env if manual collection is needed.
+python -c 'import secrets; print(secrets.token_urlsafe(32))'
+
+alembic upgrade head
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Open <http://127.0.0.1:8000>. API docs are at `/docs` and `/redoc`.
+
+The application intentionally reports degraded readiness before migrations are
+applied; it does not silently mutate a production schema at startup.
+
+### Optional demo observations
+
+```bash
+# APP_ENV must be development or test.
+python -m scripts.seed_demo_data
+# Recreate only the clearly-labelled demo fixture:
+python -m scripts.seed_demo_data --reset
+```
+
+Demo products use `identity_source=demo_fixture`, snapshots use `demo:*` sources,
+and runs carry `source_metadata.demo=true`. The dashboard displays a warning.
+No production view embeds mock rows.
+
+## Live MCP verification
+
+```bash
+# Handshake + tools/list and required-tool validation
+python -m scripts.check_mcp
+
+# Also fetch three current observed bestseller cards
+python -m scripts.check_mcp --call-data
+
+# The upstream repository's independent verifier is retained too:
+node scripts/verify-live.mjs
+```
+
+A failure before an HTTP status usually means DNS/firewall/outbound-HTTPS access.
+An MCP `isError` asking for a retry can mean Digikala temporarily challenged the
+server region; bounded retries are automatic during collection.
+
+## Collect data
+
+```bash
+# All enabled scopes, default limit
+python -m scripts.collect
+
+# Explicit current top 20
+python -m scripts.collect --limit 20
+
+# Import verified short price charts for a bounded number of ranked products.
+# Set PRICE_HISTORY_PRODUCTS_PER_RUN (for example 3) before using this option.
+python -m scripts.collect --limit 20 --with-price-history
+
+# Collect a known category now (internal id from GET /api/categories)
+python -m scripts.collect --category-id 2 --limit 20
+```
+
+The first successful global collection stores category IDs returned by MCP.
+Enable conservative recurring category scopes with:
+
+```bash
+python -m scripts.manage_scopes list
+python -m scripts.manage_scopes add-category 2 --interval 1440
+python -m scripts.manage_scopes set-enabled 2 false
+```
+
+DigiScope does not recursively enable every category because doing so would
+create unmeasured request volume against a rate-limited public service.
+
+### Cron example
+
+Run once daily (server local time) and use an OS-level log rotation policy:
+
+```cron
+17 2 * * * cd /srv/digiscope && /srv/digiscope/.venv/bin/python -m scripts.collect >> /srv/digiscope/data/collection.log 2>&1
+```
+
+Do not start the same scope from several cron hosts. The local file lock protects
+one host; it cannot coordinate unrelated machines sharing no filesystem.
+
+### Manual REST collection
+
+Set `ADMIN_TOKEN` and send it only over HTTPS:
+
+```bash
+curl -X POST https://your-host.example/api/collection/run \
   -H 'content-type: application/json' \
-  -H 'accept: application/json, text/event-stream' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"search_digikala","arguments":{"query":"هدفون بی سیم","limit":2}}}'
+  -H "X-Admin-Token: $ADMIN_TOKEN" \
+  -d '{"include_global":true,"category_ids":[],"limit":10,"include_price_history":false}'
 ```
 
-And a real answer, trimmed to its bones (Toman, as JSON numbers):
+The endpoint rejects missing/incorrect tokens, applies a small burst guard, and
+uses the same per-scope lock as cron. The token is never returned by status APIs.
 
-```json
-{
-  "query": "هدفون بی سیم",
-  "returned": 2,
-  "items": [
-    { "id": 5112620, "title": "هدفون بی سیم مدل P47 5.0+EDR", "price_toman": 800000, "rating_stars": 3.7, "url": "https://www.digikala.com/product/dkp-5112620/" },
-    { "id": 19019009, "title": "هدفون بلوتوثی مدل P9 V5.3 ...", "price_toman": 900000, "rating_stars": 3, "url": "https://www.digikala.com/product/dkp-19019009/" }
-  ]
-}
+## Analytics definitions
+
+For each product in a rolling window:
+
+```text
+rank_improvement = earliest_observed_rank - latest_observed_rank
+presence_rate = observed_successful_runs / eligible_successful_runs × 100
 ```
 
-## 19 tools, grouped by the question
+A positive improvement is better because rank 1 is best. “Eligible” includes
+only successful or usable partial runs for the same scope and ranking method;
+failed runs never count as absences.
 
-**Find it**
+The ranking trend indicator is:
 
-| Tool | What it answers |
-|---|---|
-| `digikala_suggest` | Vague wording to **real search terms, category ids, trends** |
-| `search_digikala` | "Show me X" - filters, sorting, paging |
-| `browse_category` | Browse a category and **drill into sub-categories** |
-| `browse_tag` | Digikala's **own tag shelves** - resolve a tag name, then browse it like a search |
-| `search_filters` | "Which brands exist for X?" - **brand / colour / category ids + price range** |
-| `brand_lookup` | Any brand name to its id, **Persian or English** |
-
-**Know one product**
-
-| Tool | What it answers |
-|---|---|
-| `product_details` | Everything about one product: **price, seller, warranty, specs, delivery** |
-| `product_url` | Product id to **shareable URL** + title |
-| `product_variants` | "Which colour is cheapest?" - **every variant with its own price and seller**, plus insurance, delivery and instalments |
-| `product_sellers` | "Who else sells it, and are they reliable?" - **every storefront behind one product**, with Digikala's own performance numbers |
-| `product_price_chart` | "Is now cheap?" - **short price history with seller per point** |
-| `product_reviews` | "Is it any good?" - **buyer-only** and min-rating filters |
-| `product_questions` | "What did buyers ask?" - questions with their answers, tagged seller / buyer / user |
-
-**Decide**
-
-| Tool | What it answers |
-|---|---|
-| `compare_products` | "Which of these?" - **only the specs that actually differ** |
-| `find_best_value` | "Best X under Y Toman" - **ranked picks, seller grade on the top pick** |
-| `get_products_batch` | Shortlist cards for **up to 10 ids** - feeds `compare_products` |
-| `similar_products` | "What else is like this?" - Digikala's own recommendations |
-
-**What is hot**
-
-| Tool | What it answers |
-|---|---|
-| `incredible_offers` | **Today's deals** (شگفت‌انگیز and the other promotion sections, incl. the DigiPlus early-access window) |
-| `best_selling` | Site-wide bestsellers, with category ids to go deeper |
-
-### Using it well
-
-- **All prices are in Toman** (1 Toman = 10 Rial). Prices, stock and discounts **move constantly** - always link the product URL so the user can confirm before buying.
-- Start vague queries with **`digikala_suggest`** to get real search terms and a `category_id`; get `brand_ids` from **`search_filters`** or **`brand_lookup`**.
-- Anything with a **budget** or the word **"best"** goes to **`find_best_value`** - plain search only sees one page. A brand word in `query` is **not** a filter - picks come from a price-sorted page - so pin the brand with `brand_ids` from `brand_lookup`.
-- Digikala's search **ORs its tokens**: results that only partially match come back flagged `low_confidence` with the exact `unmatched_terms`, and clamped pages report `page_clamped` instead of silently correcting.
-- Results are **capped** (default 10, max 30) to protect agent context; specs are capped at 60 attributes unless narrowed.
-- Product counts are **Digikala's own estimates** and drift between pages - treat them as approximate.
-- **[examples/sample-calls.md](examples/sample-calls.md)** has nine copy-paste conversation flows; **[docs/tools.md](docs/tools.md)** is the full parameter reference.
-- Persian queries are normalized with [fa-text-utils](https://github.com/mmdju/fa-text-utils) (yeh/kaf folding, Persian digits, ZWNJ variants).
-
-## Reliability and limits
-
-- **Free public service** on Cloudflare Workers. **20 requests per minute per IP** on POST /mcp (HTTP 429 + `retry-after`; the counter is Cloudflare's, per data centre). A full agent session - handshake, a search, a few detail reads, one comparison - measures at roughly 15-20 POSTs, so ordinary use never comes close.
-- **A block is a wait, not a failure.** Digikala's CDN challenges some regions; the server waits it out with backoff instead of retrying in a burst. Short blocks turn into real answers; a block that outlasts the window returns one honest message asking for a retry in 15-30 seconds.
-- **Polite pacing to Digikala:** one shared gate across every instance - at most **two upstream calls in flight, half a second apart**.
-- **When a tag shelf will not answer**, `browse_tag` falls back to a plain search for the shelf's name and labels the answer `items_from_search: true` - never a silent substitute.
-- **Nothing to sign up for.** No accounts, no sessions, no API keys, and nothing about you stored. What the server does keep: a short-lived **response cache** (Cloudflare's Cache API - minutes for prices, hours for reads that barely move), Digikala's own **bot-check cookie** (10 minutes, so one solved challenge covers every instance in the same data centre), and a temporary **failure log** (tool, error kind, status, request path, product id - never your query, your IP or a title; rows are pruned after 30 days).
-- **Undocumented upstream.** Digikala's public API can change without notice - this service tracks it and adapts, which is exactly why the [verify script](scripts/verify-live.mjs) exists.
-
-## How it works
-
-```mermaid
-flowchart LR
-    subgraph you [Your machine]
-        agent[AI agent<br/>Cline / Cursor / Claude]
-    end
-    subgraph cf [Cloudflare Workers]
-        worker[digikala-mcp<br/>read-only, no accounts]
-    end
-    dk[(Digikala public web API<br/>api.digikala.com)]
-
-    agent -->|POST /mcp<br/>Streamable HTTP, no key| worker
-    worker -->|HTTPS + polite pacing<br/>reads only| dk
-    dk -->|compact JSON| worker
-    worker -->|small cards<br/>toman, rating, URL| agent
+```text
+100 × (0.55 × normalized rank improvement
+     + 0.25 × presence
+     + 0.10 × observation confidence
+     + 0.10 × recency)
 ```
 
-One request in, one answer out - and nothing in that path stores who you are. The full picture is in [docs/architecture.md](docs/architecture.md).
+Its range is -100..100 and all components are returned by the API. It is not a
+sales-growth score. At least two valid observations are required for a product
+to be described as improving.
 
-## Trust, verified
+Coverage reports include the exact window, expected and successful runs,
+excluded failures, unique products, sufficient-history count, temporal and
+schedule percentages, and earliest/latest observations. Overall coverage is the
+lower of temporal and schedule coverage; a period is “complete” only at 95%+ and
+with the expected successful opportunities.
 
-Don't take my word for it - check the live server yourself:
+## REST API
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/health`, `/ready` | Process health and DB/schema readiness |
+| GET | `/api/dashboard` | Metrics, current list, improvements, 7d/30d coverage |
+| GET | `/api/categories` | Known parent/child categories |
+| GET | `/api/products` | Search/filter/sort/paginate rankings |
+| GET | `/api/products/{id}` | Metadata, price/rank timelines, coverage |
+| GET | `/api/rankings` | Current, 7d, or 30d observed rankings |
+| GET | `/api/market/trends` | Sufficient-history ranking improvements |
+| GET | `/api/collection/status` | Runs, errors, timestamps, configured scopes |
+| POST | `/api/collection/run` | Authenticated manual collection |
+| GET | `/api/export.csv` | Filtered Excel-compatible Persian CSV |
+
+Examples:
 
 ```bash
-node scripts/verify-live.mjs   # needs Node.js 18+, nothing to install
+curl 'http://127.0.0.1:8000/api/rankings?period=7d&scope=global&limit=10'
+curl 'http://127.0.0.1:8000/api/rankings?period=30d&scope=category&category_id=2&limit=20'
+curl -OJ 'http://127.0.0.1:8000/api/export.csv?period=7d&scope=global&limit=50'
 ```
 
-It checks the handshake, the live release against this repo's CHANGELOG, the tool list, a real search with a details read, and the two error paths. The same script runs **hourly in CI** ([![Live verify](https://github.com/mmdju/digikala-mcp/actions/workflows/verify.yml/badge.svg)](https://github.com/mmdju/digikala-mcp/actions/workflows/verify.yml)) - if the endpoint or Digikala's API drifts, the badge goes red. [examples/python.py](examples/python.py) is a copy-paste client (standard library only).
+## Tests
 
-## Data source
+```bash
+pytest -q
+# or, without activating the environment:
+.venv/bin/pytest -q
+```
 
-Digikala's public web API (**undocumented, may change without notice**). This project is **not affiliated with or endorsed by Digikala**.
+The deterministic suite covers MCP initialization/discovery/sessions, JSON/SSE,
+structured/text content, invalid payloads, retries/rate limits/timeouts/tool
+errors; migrations and DB constraints/rollback/FKs; collection idempotency and
+locks; all requested analytics edge cases; every REST area, auth, CSV BOM and
+formula protection; and static RTL/responsive frontend contracts.
 
-## License
+Latest local result at delivery: **57 passed**. The normal suite performs no live
+Digikala requests.
 
-Showcase repository - docs, examples and the standalone live-verify script, **no server source** - see [LICENSE](LICENSE). Security notes in [SECURITY.md](SECURITY.md). Persian version in [README_FA.md](README_FA.md).
+## Database migrations, backup, and restore
 
-*If this is useful, a star helps other builders find it.*
+```bash
+alembic current
+alembic upgrade head
+
+# Consistent online SQLite backup + integrity check (mode 0600)
+python -m scripts.backup_db ./data/backups
+```
+
+Restore procedure:
+
+1. Stop web and collection processes.
+2. Back up the damaged/current file separately.
+3. Copy the selected backup over the path in `DATABASE_URL`.
+4. Remove stale `-wal`/`-shm` files only while every process is stopped.
+5. Run `alembic current`, `alembic upgrade head`, and `GET /ready`.
+
+Always make a backup before applying future migrations. Keep the database,
+backups, `.env`, and lock directory outside any public document root.
+
+## Production deployment
+
+A small VPS with one Uvicorn worker and system cron is the predictable target:
+
+```bash
+APP_ENV=production uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
+Put Nginx/Caddy in front for TLS and proxy requests to that local port. Keep one
+worker for SQLite write simplicity; scale vertically or move to a server DB
+before adding workers. Run cron separately as shown above.
+
+For cPanel/shared hosting, verify **before deployment**:
+
+1. Python 3.11+, ASGI support (not only Passenger WSGI), and process longevity.
+2. Outbound HTTPS to `digikala-mcp.mmdju.workers.dev`.
+3. A writable private path outside `public_html` for SQLite/locks/backups.
+4. Cron support with the virtualenv Python executable.
+5. Whether host restarts or worker multiplicity can conflict with SQLite.
+
+If ASGI, outbound access, or reliable cron is unavailable, use a small VPS or an
+external scheduler that securely invokes the authenticated endpoint. No claim is
+made that this repository has been externally deployed.
+
+## Configuration
+
+See [`.env.example`](.env.example). Key values:
+
+- `DATABASE_URL`: file-backed SQLite URL.
+- `DIGIKALA_MCP_URL`: replaceable fixed upstream endpoint (never user-supplied).
+- `MCP_REQUEST_TIMEOUT`, `MCP_MAX_RETRIES`, retry delays.
+- `COLLECTION_INTERVAL_MINUTES`: expected-opportunity/cron cadence.
+- `DEFAULT_RANKING_LIMIT`, `MAX_RANKING_LIMIT`.
+- `PRICE_HISTORY_PRODUCTS_PER_RUN`: conservative history enrichment bound.
+- `ADMIN_TOKEN`: required for manual collection; mandatory in production when
+  collection is enabled.
+- `APP_TIMEZONE`: validated IANA timezone used for deployment policy/display
+  context; timestamps are persisted in UTC.
+
+## Troubleshooting
+
+- **`/ready` is 503:** run `alembic upgrade head`; verify file permissions.
+- **`database is locked`:** confirm only one web worker/cron host, keep the DB on
+  a local filesystem, and inspect stale collection processes. A 30-second busy
+  timeout and WAL are already enabled.
+- **HTTP 429 from MCP:** lower scope frequency; DigiScope honours `Retry-After`.
+- **Transient Digikala/CDN tool error:** wait and retry; do not increase retries
+  aggressively.
+- **No 7d/30d comparison:** at least two actual rank observations are required.
+- **Global top 50 shows fewer rows:** this is the documented `best_selling`
+  maximum of 30, not missing rows filled from another method.
+- **No price chart:** set a positive `PRICE_HISTORY_PRODUCTS_PER_RUN`, collect
+  with `--with-price-history`, and remember that not every product has points.
+
+## Project layout
+
+```text
+app/
+  api/              REST routers
+  mcp/              Streamable HTTP client, adapter, normalizers
+  models/           SQLAlchemy observed-fact schema
+  schemas/          Pydantic REST contracts
+  services/         collection, persistence, coverage, analytics
+  static/           RTL CSS, vanilla JS, vendored Chart.js/Vazirmatn
+  templates/        Persian dashboard
+migrations/          Alembic revisions
+scripts/             collect, check MCP, scopes, demo seed, backup
+tests/               deterministic MCP/DB/analytics/API/frontend tests
+docs/               upstream tool docs and integration report
+ data/               ignored runtime DB, locks, backups, logs
+```
+
+## Attribution and license
+
+Digikala MCP and the retained upstream documentation are by `mmdju`; see the
+repository [`LICENSE`](LICENSE). Chart.js and Vazirmatn license notices are
+vendored beside their assets. DigiScope is not affiliated with or endorsed by
+Digikala. Digikala's public web API is undocumented and may change without
+notice.
