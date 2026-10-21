@@ -6,7 +6,7 @@ import os
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from app.database import Base
+from app.database import Base, ensure_sqlite_parent
 from app import models  # noqa: F401 - registers mapped tables
 
 config = context.config
@@ -17,6 +17,10 @@ if config.config_file_name is not None:
 # environment variable wins for normal CLI/deployment usage.
 if database_url := os.getenv("DATABASE_URL"):
     config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
+
+# Keep Alembic consistent with app.database.create_database_engine: a file-backed
+# SQLite target may live in a directory that does not exist yet on a fresh clone.
+ensure_sqlite_parent(config.get_main_option("sqlalchemy.url"))
 
 target_metadata = Base.metadata
 

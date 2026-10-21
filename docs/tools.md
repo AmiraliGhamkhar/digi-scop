@@ -1,10 +1,28 @@
-# Tool reference
+# Upstream Digikala MCP tool reference
 
-Input/output reference for all **19 tools**. Types only - no internals. For conversation flows, see [examples/sample-calls.md](../examples/sample-calls.md).
+> **Provenance:** this is an inspected snapshot of the independently hosted
+> `mmdju/digikala-mcp` contract at commit
+> `927ab481bb2d1292410b1b3858c691a844102c6d` on 2026-10-21. These are MCP tool
+> calls—not DigiScope REST endpoints. See the [integration report](MCP_INTEGRATION_REPORT.md)
+> for transport/live-verification status and the [REST API guide](api.md) for
+> DigiScope endpoints.
 
-Every tool is **read-only** and needs **no credentials**. Result lists are **capped** (default 10, max 30). All prices are in **Toman**.
+This document retains the documented input/output reference for all **19
+read-only upstream tools**. It records types and observable response semantics,
+not unavailable Worker internals. The hosted service requires no credentials.
+Result lists are generally capped at a default of 10 and maximum of 30. Documented
+prices are in Toman.
 
-Shared conventions:
+DigiScope's collection path currently relies on `best_selling`,
+`browse_category`, and `product_price_chart`; `search_digikala` is inspected and
+required during adapter discovery but is not used to fabricate historical ranks.
+The other tools remain reference material for upstream contract analysis.
+
+For application usage examples, see
+[`examples/sample-calls.md`](../examples/sample-calls.md). For direct upstream MCP
+diagnostics, see [`examples/README.md`](../examples/README.md).
+
+## Shared upstream conventions
 
 - `limit` - how many items to return (default 10, max 30).
 - `page` - 1-based page number (search pages hold 20 products). Text search serves **50 pages**, categories **100** - asking beyond returns `page_clamped: true` + `page_requested` instead of silently correcting. In practice most queries run out well before page 50 (a few hundred to ~900 results), so a page that comes back empty may simply be past the end.
@@ -327,3 +345,21 @@ What Digikala recommends **alongside a given product** (کالاهای مشاب�
 | `max_price_toman` | number | no | Applied to the fetched page |
 | `min_rating` | number | no | 0-5 |
 | `only_marketable` | boolean | no | Default true |
+
+---
+
+## Snapshot maintenance
+
+Do not extend DigiScope by guessing from this snapshot. When the hosted contract
+changes:
+
+1. inspect `tools/list` and the upstream repository;
+2. capture the exact input schema and actual result envelope;
+3. update `MCP_INTEGRATION_REPORT.md` and this snapshot;
+4. add deterministic client, adapter, and normalizer tests;
+5. run a deployment-host live smoke test;
+6. preserve existing observations and never reinterpret old ranks under a new
+   method without an explicit migration.
+
+The upstream service is undocumented relative to Digikala's own API and may
+change without notice. A direct live response is evidence for that moment only.

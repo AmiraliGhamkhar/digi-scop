@@ -1,10 +1,14 @@
-"""Minimal client for the hosted Digikala MCP service (stdlib only).
+"""Direct diagnostic client for the independently hosted Digikala MCP.
 
 No install: python examples/python.py
 
-Talks Streamable HTTP the same way verify-live.mjs does: initialize,
-list tools, call search_digikala + product_details, print compact cards.
-Copy it into your own project and adapt freely (MIT).
+This does NOT call DigiScope's REST API or persist observations. It talks
+Streamable HTTP directly: initialize, list tools, call search_digikala and
+product_details, then print compact cards. For DigiScope's production adapter
+check use `python -m scripts.check_mcp --call-data`; for REST examples read
+`examples/sample-calls.md`.
+
+The inherited examples/ licensing terms are in the repository LICENSE.
 """
 import json
 import os
