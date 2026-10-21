@@ -1,0 +1,13 @@
+{
+  "config": {
+    "MD013": false,
+    "MD060": false
+  },
+  "globs": [
+    "README*.md",
+    "CHANGELOG.md",
+    "SECURITY.md",
+    "docs/*.md",
+    "examples/*.md"
+  ]
+}

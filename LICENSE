@@ -1,3 +1,15 @@
+DIGISCOPE LICENSE STATUS NOTICE (2026-10-21)
+
+This repository now contains DigiScope application source added after the
+original Digikala MCP showcase snapshot. The inherited license text below is
+preserved unchanged. Its statement that the repository contains documentation
+only describes that upstream snapshot; it does not clearly state licensing terms
+for newly added DigiScope files. This notice is not a license grant and does not
+modify the inherited terms. Contact the current repository owner before assuming
+rights for new application source.
+
+--- BEGIN INHERITED DIGIKALA MCP LICENSE TEXT ---
+
 Copyright (c) 2026 mmdju. All Rights Reserved.
 
 This repository is a public portfolio showcase for the Digikala MCP
@@ -39,3 +51,5 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 For permission requests, contact: https://github.com/mmdju
+
+--- END INHERITED DIGIKALA MCP LICENSE TEXT ---

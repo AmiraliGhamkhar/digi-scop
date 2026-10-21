@@ -10,8 +10,6 @@ standalone cron-friendly collector, and a replaceable MCP adapter.
 > as product absences, current ranks are never copied into the past, and missing
 > history remains visibly missing.
 
-![DigiScope data flow](assets/digikala-mcp.png)
-
 ## What is implemented
 
 - Current global and category ranking observations with 10/20/50 display limits.
@@ -27,6 +25,22 @@ standalone cron-friendly collector, and a replaceable MCP adapter.
 - Per-scope cross-process file locks and SQLite foreign keys/WAL/busy timeout.
 - Structured JSON logs, `/health`, `/ready`, OpenAPI docs, and safe browser headers.
 - A deterministic development-only fixture that is visibly labelled in the UI.
+
+## Documentation
+
+- [Documentation index](docs/README.md)
+- [Architecture](docs/architecture.md)
+- [REST API reference](docs/api.md)
+- [Data-integrity and analytics semantics](docs/data-integrity.md)
+- [Operations runbook](docs/operations.md)
+- [Deployment guide](docs/deployment.md)
+- [Testing guide](docs/testing.md)
+- [Security policy](SECURITY.md) and [changelog](CHANGELOG.md)
+- [Persian guide / راهنمای فارسی](README_FA.md)
+
+Upstream MCP material is explicitly separated in the
+[integration report](docs/MCP_INTEGRATION_REPORT.md) and
+[tool-contract snapshot](docs/tools.md).
 
 ## MCP contract inspection
 
@@ -264,8 +278,9 @@ errors; migrations and DB constraints/rollback/FKs; collection idempotency and
 locks; all requested analytics edge cases; every REST area, auth, CSV BOM and
 formula protection; and static RTL/responsive frontend contracts.
 
-Latest local result at delivery: **57 passed**. The normal suite performs no live
-Digikala requests.
+Current documented baseline: **58 passed, 0 failed**. The normal suite performs
+no live Digikala requests. See [`docs/testing.md`](docs/testing.md) for the test
+matrix, static checks, browser verification, and live-smoke separation.
 
 ## Database migrations, backup, and restore
 
@@ -319,13 +334,17 @@ See [`.env.example`](.env.example). Key values:
 - `DATABASE_URL`: file-backed SQLite URL.
 - `DIGIKALA_MCP_URL`: replaceable fixed upstream endpoint (never user-supplied).
 - `MCP_REQUEST_TIMEOUT`, `MCP_MAX_RETRIES`, retry delays.
-- `COLLECTION_INTERVAL_MINUTES`: expected-opportunity/cron cadence.
+- `COLLECTION_INTERVAL_MINUTES`: expected-opportunity/cron cadence; it does not
+  schedule or suppress runs.
+- `COLLECTION_ENABLED`: production token-validation policy in `0.1.x`, not a
+  runtime collector kill switch; disable cron and omit the token for read-only use.
 - `DEFAULT_RANKING_LIMIT`, `MAX_RANKING_LIMIT`.
 - `PRICE_HISTORY_PRODUCTS_PER_RUN`: conservative history enrichment bound.
 - `ADMIN_TOKEN`: required for manual collection; mandatory in production when
   collection is enabled.
-- `APP_TIMEZONE`: validated IANA timezone used for deployment policy/display
-  context; timestamps are persisted in UTC.
+- `APP_TIMEZONE`: validated IANA deployment setting reserved for scheduling/local
+  policy. Stored timestamps remain UTC; the current browser formats them in the
+  viewer's locale/timezone.
 
 ## Troubleshooting
 
@@ -356,14 +375,19 @@ app/
 migrations/          Alembic revisions
 scripts/             collect, check MCP, scopes, demo seed, backup
 tests/               deterministic MCP/DB/analytics/API/frontend tests
-docs/               upstream tool docs and integration report
- data/               ignored runtime DB, locks, backups, logs
+docs/               architecture, API, integrity, operations, deployment, MCP
+data/               ignored runtime DB, locks, backups, logs
 ```
 
 ## Attribution and license
 
-Digikala MCP and the retained upstream documentation are by `mmdju`; see the
-repository [`LICENSE`](LICENSE). Chart.js and Vazirmatn license notices are
-vendored beside their assets. DigiScope is not affiliated with or endorsed by
-Digikala. Digikala's public web API is undocumented and may change without
-notice.
+Digikala MCP and retained upstream contract material are by `mmdju`. The existing
+[`LICENSE`](LICENSE) originated with that showcase repository and explicitly
+controls its inherited documentation/examples; it does **not** clearly grant a
+license for the newly added DigiScope application source. Do not assume rights
+beyond that text until the repository owner adds an explicit DigiScope license.
+Chart.js and Vazirmatn notices are vendored beside their assets and remain
+unchanged.
+
+DigiScope is not affiliated with or endorsed by Digikala. Digikala's public web
+API is undocumented and may change without notice.

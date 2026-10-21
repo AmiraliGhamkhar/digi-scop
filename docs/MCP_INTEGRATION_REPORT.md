@@ -1,5 +1,10 @@
 # Digikala MCP integration report
 
+- **Document status:** inspected contract snapshot for DigiScope `0.1.x`
+- **Upstream live status from this sandbox:** unverified (network blocked before HTTP)
+- **Related docs:** [documentation index](README.md) · [tool snapshot](tools.md) ·
+  [architecture](architecture.md) · [data integrity](data-integrity.md)
+
 Inspected on **2026-10-21** at upstream commit
 `927ab481bb2d1292410b1b3858c691a844102c6d` (`mmdju/digikala-mcp`). The upstream
 repository is intentionally a showcase repository: it contains documentation,
@@ -97,9 +102,20 @@ never backfills ranks from a current list.
 
 ## Live verification status
 
-A local live smoke test was attempted on 2026-10-21 and failed before HTTP with
-`fetch failed` because this sandbox only permits outbound traffic to approved
-hosts. No live payload was used to infer a schema. The upstream public GitHub
-workflow had successful runs on the same date, but that is not a substitute for
-DigiScope's own endpoint verification. Run `python -m scripts.check_mcp` from a
-host with endpoint access to change this status.
+Two local live smoke paths were attempted on 2026-10-21. The retained Node
+verifier failed before HTTP with `fetch failed`; DigiScope's adapter check failed
+with `MCPHTTPError: MCP network request failed`. This sandbox permits outbound
+traffic only to approved hosts, so no live payload was used to infer a schema.
+
+The upstream project's public GitHub verification runs were successful on the
+same date, but that is not a substitute for DigiScope testing from its deployment
+host. Run both commands there:
+
+```bash
+python -m scripts.check_mcp
+python -m scripts.check_mcp --call-data
+```
+
+If they succeed, record the host, time, server version, negotiated protocol, tool
+count, and a redacted normalized-card result in deployment/release evidence. Do
+not rewrite historical observations solely because a later contract changes.
