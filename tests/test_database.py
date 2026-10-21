@@ -141,6 +141,18 @@ def test_check_constraints_reject_invalid_observed_values(session_factory):
         )
 
 
+def test_alembic_upgrade_creates_missing_database_directory(tmp_path: Path, monkeypatch):
+    database = tmp_path / "nested" / "runtime" / "migrated.db"
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
+    command.upgrade(config, "head")
+    assert database.exists()
+    engine = create_database_engine(f"sqlite:///{database}")
+    assert "rank_observations" in inspect(engine).get_table_names()
+    engine.dispose()
+
+
 def test_alembic_upgrade_from_clean_database(tmp_path: Path, monkeypatch):
     database = tmp_path / "migrated.db"
     monkeypatch.delenv("DATABASE_URL", raising=False)

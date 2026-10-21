@@ -8,9 +8,7 @@ __pycache__/
 .ruff_cache/
 .coverage
 htmlcov/
-data/*.db
-data/*.db-*
-data/*.sqlite*
-data/locks/
+# Runtime state: SQLite database, WAL/SHM sidecars, locks, backups, logs.
+data/
 *.log
 .DS_Store
