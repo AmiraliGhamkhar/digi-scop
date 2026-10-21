@@ -21,6 +21,9 @@ Base URL examples use `http://127.0.0.1:8000`. Production traffic must use HTTPS
   windows.
 - Every ranking list returns `data_basis` so clients can distinguish current data
   from stored history.
+- In a `current` list, `observation_count` is the number of times the product was
+  really observed in that scope and method, and `first_observed` is its earliest
+  such observation. Both count stored observations only.
 - The maximum API page/export size is 50. The upstream global `best_selling`
   source itself exposes at most 30 products.
 
@@ -103,6 +106,10 @@ trend, -trend
 A leading `-` means descending. Null values sort last. Sort values are validated
 against this allowlist and never interpolated into SQL.
 
+When the requested sort field cannot separate the rows of the requested period
+(for example `rank_improvement` in a current list, where no row has that field),
+the list keeps the observed rank order instead of an arbitrary product order.
+
 Example:
 
 ```bash
@@ -171,6 +178,10 @@ It returns the same `RankingListResponse` structure.
 Returns stable product metadata, first/last seen times, latest snapshot, up to 500
 stored non-null price snapshots, up to 500 ranking observations from usable
 `success`/`partial` runs across scopes, and per-scope 7-day/30-day coverage.
+
+The history windows hold the **newest** 500 rows, not the oldest ones, and
+`latest_snapshot` is the newest known observation of the product. A product with
+more than 500 stored points therefore shows its most recent price and rank.
 
 Price and ranking histories are separate arrays. A price point at a timestamp does
 not imply that the product had a ranking observation then.
@@ -246,7 +257,8 @@ Rules:
 - A missing or incorrect token returns HTTP 401.
 - Category IDs must be unique; at most ten are accepted.
 - At least global or one category must be selected.
-- `limit` is 1–50 and must not exceed `MAX_RANKING_LIMIT`.
+- `limit` is 1–50 and must not exceed `MAX_RANKING_LIMIT` (50, the same cap the
+  verified adapter enforces).
 - Unknown categories return HTTP 404.
 - A process-local two-second trigger guard returns HTTP 429 with `Retry-After`.
 - Per-scope filesystem locks prevent overlapping cron/web collections.
@@ -261,7 +273,8 @@ scope. Prefer local cron for normal scheduling.
 ### `GET /api/export.csv`
 
 Parameters: `period`, `scope`, `category_id`, `q`, `sort`, and `limit` with the
-same validation as ranking endpoints. The response:
+same validation as ranking endpoints. `limit` defaults to 50, so the export is
+not narrowed by the page size of the table. The response:
 
 - contains a UTF-8 BOM for Persian Excel compatibility;
 - uses Persian column headings;

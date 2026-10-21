@@ -10,6 +10,11 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import Field, HttpUrl, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# The largest ranking the verified upstream contract can serve. The API
+# pages, the CSV export and the MCP adapter all use this one number, so a
+# configured limit can never promise more than the adapter accepts.
+MAX_RANKING_LIMIT = 50
+
 
 class Settings(BaseSettings):
     """Validated DigiScope settings.
@@ -43,8 +48,8 @@ class Settings(BaseSettings):
 
     collection_interval_minutes: int = Field(default=1440, ge=5, le=43_200)
     collection_enabled: bool = True
-    default_ranking_limit: int = Field(default=10, ge=1, le=50)
-    max_ranking_limit: int = Field(default=50, ge=1, le=100)
+    default_ranking_limit: int = Field(default=10, ge=1, le=MAX_RANKING_LIMIT)
+    max_ranking_limit: int = Field(default=MAX_RANKING_LIMIT, ge=1, le=MAX_RANKING_LIMIT)
     price_history_products_per_run: int = Field(default=0, ge=0, le=30)
     collection_lock_dir: Path = Path("./data/locks")
 

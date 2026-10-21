@@ -6,6 +6,9 @@
     period: 'current', scope: 'global', categoryId: '', limit: 10,
     offset: 0, sort: 'rank', query: '', selectedId: null, requestSerial: 0,
   };
+  // The export endpoint serves the whole result set up to its own maximum;
+  // it must not inherit the page size of the table.
+  const EXPORT_LIMIT = 50;
   const faNumber = new Intl.NumberFormat('fa-IR');
   const faDate = new Intl.DateTimeFormat('fa-IR', {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
@@ -109,6 +112,7 @@
   const updateExport = () => {
     const params = rankingParams();
     delete params.offset;
+    params.limit = EXPORT_LIMIT;
     byId('export-link').href = api.exportURL(params);
   };
 

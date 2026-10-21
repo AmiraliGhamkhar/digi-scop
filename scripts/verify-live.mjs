@@ -3,10 +3,11 @@
 //
 //   node verify-live.mjs
 //
-// The public check behind the hourly CI job: handshake, release version
-// against this repo's CHANGELOG, the tool list, one search + details read,
-// and the two error paths. It talks to the hosted endpoint only - no server
-// source, no keys. Set DIGIKALA_MCP_URL to point it somewhere else.
+// The public check behind the hourly CI job: handshake, the service version
+// against the baseline DigiScope verified, the tool list, one search +
+// details read, and the two error paths. It talks to the hosted endpoint
+// only - no server source, no keys. Set DIGIKALA_MCP_URL to point it
+// somewhere else.
 //
 // Flake policy: Digikala's CDN sometimes answers the CI region with a cookie
 // challenge instead of data, and the worker then correctly reports an
@@ -14,11 +15,15 @@
 // server, so those checks report SKIP (exit 0) and only real contract
 // violations report FAIL (exit 1). The workflow gives a failed run one retry
 // after a cooldown, so this script stays single-shot on purpose.
-import { readFileSync } from "node:fs";
-
 const ENDPOINT = process.env.DIGIKALA_MCP_URL ?? "https://digikala-mcp.mmdju.workers.dev/mcp";
 const HEALTH = ENDPOINT.replace(/\/mcp\/?$/, "/health");
 const UA = { "user-agent": "digikala-mcp-verify/1.0" };
+
+// The oldest upstream release whose contract DigiScope verified. The upstream
+// release history lives in the mmdju/digikala-mcp repository; this repo's
+// CHANGELOG.md tracks DigiScope application releases, so it can never be
+// compared with the hosted service version.
+const MIN_VERIFIED_MCP_VERSION = "0.9.0";
 
 let nextId = 1;
 async function rpc(method, params = {}) {
@@ -62,6 +67,21 @@ function checkOrSkip(name, blocked, ok, detail = "") {
   check(name, ok, detail);
 }
 
+// Compare two dotted versions: -1, 0 or 1.
+function compareVersions(left, right) {
+  const parse = (value) =>
+    String(value)
+      .split(".")
+      .map((part) => Number.parseInt(part, 10) || 0);
+  const a = parse(left);
+  const b = parse(right);
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    const difference = (a[index] || 0) - (b[index] || 0);
+    if (difference !== 0) return difference > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
 // One tools/call response down to what the checks need: the message, and the
 // parsed payload when the tool answered with JSON.
 function readTool(res) {
@@ -87,13 +107,16 @@ async function main() {
   await rpc("notifications/initialized", {});
 
   // Release drift: a stale build speaks perfect MCP, so every other check can
-  // stay green while the worker serves a release the docs left behind. The
-  // version /health reports is compared against the newest heading in this
-  // repo's CHANGELOG.
+  // stay green while the worker serves a release the contract was never
+  // verified against. The live version must be at least the baseline this
+  // client verified.
   const health = await fetch(HEALTH, { headers: UA }).then((r) => r.json()).catch(() => ({}));
   const live = health.version ?? server.version ?? "unknown";
-  const newest = readFileSync(new URL("../CHANGELOG.md", import.meta.url), "utf8").match(/^## (\d+\.\d+\.\d+)/m)?.[1];
-  check("live version is the newest CHANGELOG release", !!newest && live === newest, `live=${live} changelog=${newest ?? "none"}`);
+  check(
+    "live service is at least the verified baseline",
+    compareVersions(live, MIN_VERIFIED_MCP_VERSION) >= 0,
+    `live=${live} baseline=${MIN_VERIFIED_MCP_VERSION}`,
+  );
 
   // The tool list: the count the README advertises, and the read-only promise.
   const tools = (await rpc("tools/list", {})).result?.tools ?? [];

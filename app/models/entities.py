@@ -129,7 +129,16 @@ class CollectionRun(Base):
     scope_type: Mapped[ScopeType] = mapped_column(scope_type_enum, nullable=False)
     scope_key: Mapped[str] = mapped_column(String(160), nullable=False)
     category_id: Mapped[int | None] = mapped_column(
-        ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
+        # A category that owns recorded observations cannot be deleted: the
+        # check constraint above requires a category scope to keep its
+        # category, so nulling the reference would break the row. Deleting the
+        # observations first is the explicit, auditable path.
+        ForeignKey(
+            "categories.id",
+            name="fk_collection_runs_category_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
     )
     sort_type: Mapped[str] = mapped_column(String(80), nullable=False, default="best_selling")
     requested_limit: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
@@ -231,7 +240,14 @@ class RankObservation(Base):
     observed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     scope_type: Mapped[ScopeType] = mapped_column(scope_type_enum, nullable=False)
     scope_id: Mapped[int | None] = mapped_column(
-        ForeignKey("categories.id", ondelete="SET NULL"), nullable=True
+        # Same rule as collection_runs.category_id: a category scope keeps its
+        # category, so the category cannot disappear under the observation.
+        ForeignKey(
+            "categories.id",
+            name="fk_rank_observations_scope_id",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
     )
     scope_key: Mapped[str] = mapped_column(String(160), nullable=False)
     sort_type: Mapped[str] = mapped_column(String(80), nullable=False)

@@ -226,6 +226,32 @@ async def test_items_fetched_prefers_the_upstream_returned_count(session_factory
 
 
 @pytest.mark.asyncio
+async def test_run_configured_can_skip_the_global_scope(session_factory, mock_adapter, settings):
+    service = CollectionService(session_factory, mock_adapter, settings)
+    service.ensure_default_scope()
+    with session_factory.begin() as db:
+        category = Category(external_id="11", title="موبایل", last_seen_at=utc_now())
+        db.add(category)
+        db.flush()
+        category_id = category.id
+        db.add(
+            CollectionScope(
+                scope_type=ScopeType.CATEGORY,
+                scope_key=f"category:{category_id}",
+                category_id=category_id,
+                sort_type="best_selling",
+                enabled=True,
+                interval_minutes=1440,
+            )
+        )
+    outcomes = await service.run_configured(limit=3, include_global=False)
+    assert [outcome.scope_key for outcome in outcomes] == [f"category:{category_id}"]
+    with session_factory() as db:
+        runs = list(db.scalars(select(CollectionRun)))
+    assert all(run.scope_key != "global" for run in runs)
+
+
+@pytest.mark.asyncio
 async def test_scope_lock_prevents_overlapping_job(session_factory, mock_adapter, settings):
     service = CollectionService(session_factory, mock_adapter, settings)
     service.ensure_default_scope()

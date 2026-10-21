@@ -14,7 +14,11 @@ from app.schemas.api import (
     ManualCollectionResponse,
 )
 from app.services.analytics_service import AnalyticsService
-from app.services.collection_service import CollectionAlreadyRunning, CollectionConfigurationError
+from app.services.collection_service import (
+    CollectionAlreadyRunning,
+    CollectionConfigurationError,
+    skipped_outcome,
+)
 
 router = APIRouter(prefix="/api/collection", tags=["collection"])
 
@@ -92,17 +96,7 @@ async def run_collection(
                 include_price_history=body.include_price_history,
             )
         except CollectionAlreadyRunning as exc:
-            outcomes.append(
-                {
-                    "run_id": 0,
-                    "scope_key": scope.scope_key,
-                    "status": "skipped",
-                    "items_fetched": 0,
-                    "items_saved": 0,
-                    "warnings": [],
-                    "error": str(exc),
-                }
-            )
+            outcomes.append(asdict(skipped_outcome(scope.scope_key, str(exc))))
             continue
         outcomes.append(asdict(outcome))
     return {"outcomes": outcomes}

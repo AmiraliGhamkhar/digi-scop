@@ -5,11 +5,12 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import inspect, select, text
+from sqlalchemy import delete, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 
 from app.database import create_database_engine, utc_now
 from app.models import (
+    Category,
     CollectionRun,
     CollectionStatus,
     Product,
@@ -164,8 +165,103 @@ def test_alembic_upgrade_from_clean_database(tmp_path: Path, monkeypatch):
     with engine.connect() as connection:
         assert (
             connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one()
-            == "17025a71ce1e"
+            == "b7c8d9e0f1a2"
         )
     command.downgrade(config, "base")
     assert "products" not in inspect(engine).get_table_names()
+    engine.dispose()
+
+
+def test_fresh_schema_refuses_to_orphan_recorded_observations(session_factory, engine):
+    with engine.connect() as connection:
+        run_ddl = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'collection_runs'")
+        ).scalar_one()
+        rank_ddl = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'rank_observations'")
+        ).scalar_one()
+    # The foreign key refuses the delete instead of promising to null the
+    # reference away, which the scope check would reject anyway.
+    assert "ON DELETE RESTRICT" in run_ddl
+    assert "ON DELETE RESTRICT" in rank_ddl
+    now = utc_now()
+    with session_factory.begin() as db:
+        category = Category(external_id="11", title="موبایل", last_seen_at=now)
+        db.add(category)
+        db.flush()
+        category_id = category.id
+        db.add(
+            CollectionRun(
+                started_at=now,
+                finished_at=now,
+                status=CollectionStatus.SUCCESS,
+                items_fetched=1,
+                items_saved=1,
+                scope_type=ScopeType.CATEGORY,
+                scope_key=f"category:{category_id}",
+                category_id=category_id,
+                sort_type="best_selling",
+                requested_limit=10,
+            )
+        )
+    with pytest.raises(IntegrityError), session_factory.begin() as db:
+        db.execute(delete(Category).where(Category.id == category_id))
+    with session_factory() as db:
+        # The observation is still there: the delete was refused, not applied.
+        assert db.scalar(select(CollectionRun).where(CollectionRun.category_id == category_id))
+
+
+def test_migrated_schema_keeps_constraints_and_refuses_to_orphan_observations(
+    tmp_path: Path, monkeypatch
+):
+    database = tmp_path / "migrated.db"
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", f"sqlite:///{database}")
+    command.upgrade(config, "head")
+    engine = create_database_engine(f"sqlite:///{database}")
+    with engine.connect() as connection:
+        rank_ddl = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'rank_observations'")
+        ).scalar_one()
+        run_ddl = connection.execute(
+            text("SELECT sql FROM sqlite_master WHERE name = 'collection_runs'")
+        ).scalar_one()
+        indexes = {
+            row[0]
+            for row in connection.execute(
+                text(
+                    "SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='rank_observations'"
+                )
+            )
+        }
+    # The scope checks, the unique constraints and the indexes survive the
+    # rebuild, and the category reference now refuses to be nulled away.
+    assert "ck_rank_scope_category" in rank_ddl
+    assert "uq_rank_run_product" in rank_ddl
+    assert "ON DELETE RESTRICT" in rank_ddl
+    assert "ck_collection_runs_scope_category" in run_ddl
+    assert "ON DELETE RESTRICT" in run_ddl
+    assert "ix_rank_product_observed" in indexes
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO categories (id, external_id, title, last_seen_at, created_at, updated_at)"
+                " VALUES (1, '11', 'موبایل', '2026-10-21 00:00:00',"
+                " '2026-10-21 00:00:00', '2026-10-21 00:00:00')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO collection_runs (id, started_at, finished_at, status,"
+                " items_fetched, items_saved, scope_type, scope_key, category_id,"
+                " sort_type, requested_limit)"
+                " VALUES (1, '2026-10-21 00:00:00', '2026-10-21 00:00:00', 'success',"
+                " 1, 1, 'category', 'category:1', 1, 'best_selling', 10)"
+            )
+        )
+    with pytest.raises(IntegrityError), engine.begin() as connection:
+        connection.execute(text("DELETE FROM categories WHERE id = 1"))
+    with engine.connect() as connection:
+        assert connection.execute(text("SELECT count(*) FROM collection_runs")).scalar_one() == 1
     engine.dispose()

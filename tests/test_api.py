@@ -56,6 +56,14 @@ def test_rankings_current_and_historical_data_basis(client):
     assert history.json()["items"][0]["observation_count"] >= 2
 
 
+def test_current_rankings_report_the_observed_count(client, seeded_market):
+    response = client.get("/api/rankings", params={"period": "current", "limit": 10})
+    assert response.status_code == 200
+    counts = {item["external_id"]: item["observation_count"] for item in response.json()["items"]}
+    assert counts["201"] == 4
+    assert counts["204"] == 3
+
+
 def test_query_validation_and_scope_errors(client):
     assert client.get("/api/rankings", params={"period": "1y"}).status_code == 422
     assert client.get("/api/rankings", params={"limit": 51}).status_code == 422
@@ -173,4 +181,7 @@ def test_frontend_is_rtl_responsive_and_uses_api_data(client):
     assert "@media(max-width:620px)" in css.text
     assert "api.rankings" in javascript.text
     assert "mock data" not in javascript.text.lower()
+    # The export link must not inherit the page size of the table.
+    assert "EXPORT_LIMIT = 50" in javascript.text
+    assert "params.limit = EXPORT_LIMIT" in javascript.text
     assert page.headers["content-security-policy"].startswith("default-src 'self'")

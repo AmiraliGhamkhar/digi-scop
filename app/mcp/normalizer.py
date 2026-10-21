@@ -38,6 +38,55 @@ class _Card(BaseModel):
             raise ValueError("empty title")
         return value[:1000]
 
+    @field_validator("price_toman", "discount_percent", "rating_stars", mode="before")
+    @classmethod
+    def numbers_tolerate_unparsable_values(cls, value: Any) -> Any:
+        """A malformed number costs the number, not the whole product.
+
+        Upstream occasionally sends a price as a formatted or Persian string.
+        The value is either read as a number or dropped; the product itself
+        stays in the observation with the field absent.
+        """
+
+        return _to_number(value)
+
+    @field_validator("rating_count", mode="before")
+    @classmethod
+    def count_tolerates_unparsable_values(cls, value: Any) -> Any:
+        number = _to_number(value)
+        if number is None:
+            return None
+        return int(number)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def id_tolerates_other_types(cls, value: Any) -> Any:
+        # An unusable id is not a reason to drop the product: the canonical
+        # URL can still identify it.
+        if value is None or isinstance(value, (int, str)):
+            return value
+        return None
+
+    @field_validator("url", "image_url", "seller", mode="before")
+    @classmethod
+    def optional_text_tolerates_other_types(cls, value: Any) -> Any:
+        if value is None or isinstance(value, str):
+            return value
+        return None
+
+    @field_validator("in_stock", mode="before")
+    @classmethod
+    def in_stock_tolerates_unknown_values(cls, value: Any) -> Any:
+        if value is None or isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in {"true", "yes", "1"}:
+                return True
+            if text in {"false", "no", "0"}:
+                return False
+        return None
+
 
 @dataclass(slots=True)
 class NormalizedCategory:
@@ -111,6 +160,40 @@ def _identity(card_id: int | str | None, url: str | None) -> tuple[str, str]:
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:40]
         return f"url:{digest}", "canonical_url_hash"
     raise NormalizationError("product has neither a stable id nor a verified canonical URL")
+
+
+_PERSIAN_DIGITS = str.maketrans("۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩", "01234567890123456789")
+_THOUSANDS_SEPARATORS = ",٬، "
+
+
+def _to_number(value: Any) -> int | float | None:
+    """Read a number from a JSON number or a formatted string.
+
+    Returns ``None`` when the value cannot be read as a number at all; the
+    caller then stores the field as absent instead of inventing a value.
+    """
+
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return value
+    if not isinstance(value, str):
+        return None
+    text = value.strip().translate(_PERSIAN_DIGITS)
+    if not text:
+        return None
+    text = text.replace("٫", ".").replace("٬", "").replace("،", "")
+    text = "".join(character for character in text if character not in _THOUSANDS_SEPARATORS)
+    if not text:
+        return None
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    try:
+        return float(text)
+    except ValueError:
+        return None
 
 
 def _nonnegative_int(value: Any) -> int | None:

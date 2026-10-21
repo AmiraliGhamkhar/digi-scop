@@ -68,11 +68,19 @@ def seed(reset: bool) -> None:
                 )
                 session.execute(delete(Snapshot).where(Snapshot.collection_run_id.in_(run_ids)))
                 session.execute(delete(CollectionRun).where(CollectionRun.id.in_(run_ids)))
-            session.execute(delete(Snapshot).where(Snapshot.source.like("demo:%")))
+            session.execute(delete(Snapshot).where(Snapshot.source.like("demo-%")))
             demo_category_ids = list(
                 session.scalars(select(Category.id).where(Category.external_id.like("demo-%")))
             )
             if demo_category_ids:
+                # The category foreign keys refuse to be deleted while a row
+                # points at them, so every reference goes first.
+                session.execute(
+                    delete(RankObservation).where(RankObservation.scope_id.in_(demo_category_ids))
+                )
+                session.execute(
+                    delete(CollectionRun).where(CollectionRun.category_id.in_(demo_category_ids))
+                )
                 session.execute(
                     delete(CollectionScope).where(
                         CollectionScope.category_id.in_(demo_category_ids)

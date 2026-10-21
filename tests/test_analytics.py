@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import timedelta
+
 from sqlalchemy import select
 
-from app.models import Product
+from app.models import Product, Snapshot
 from app.services.analytics_service import AnalyticsService
 
 
@@ -83,7 +85,74 @@ def test_current_list_uses_latest_successful_observed_run(session_factory, seede
     assert run.status.value == "success"
     assert by_external(items, "201")["current_rank"] == 5
     assert by_external(items, "201")["rank_change"] == 5
-    assert all(item["observation_count"] == 1 for item in items)
+
+
+def test_current_list_reports_the_observed_count_and_first_observation(
+    session_factory, seeded_market
+):
+    with session_factory() as db:
+        items, _ = AnalyticsService(db).current_rankings()
+    # The count is how often the product was really observed in the scope,
+    # not a placeholder of one.
+    assert by_external(items, "201")["observation_count"] == 4
+    assert by_external(items, "204")["observation_count"] == 3
+    assert by_external(items, "201")["first_observed"] == seeded_market["now"] - timedelta(days=3)
+
+
+def test_product_detail_keeps_the_newest_observations(session_factory, seeded_market):
+    product_id = seeded_market["products"][0]
+    oldest = seeded_market["now"] - timedelta(days=900)
+    with session_factory.begin() as db:
+        db.add_all(
+            [
+                Snapshot(
+                    product_id=product_id,
+                    observed_at=oldest + timedelta(minutes=index),
+                    price_toman=1_000 + index,
+                    source="test:bulk",
+                    variant_key="default",
+                )
+                for index in range(520)
+            ]
+        )
+    with session_factory() as db:
+        detail = AnalyticsService(db).product_detail(product_id)
+    # The window holds the newest 500 rows, and the latest snapshot is the
+    # newest known fact - not the oldest row that happened to fit the window.
+    assert len(detail["price_history"]) == 500
+    assert detail["latest_snapshot"]["price_toman"] == 1_030_000
+    assert detail["price_history"][-1]["price_toman"] == 1_030_000
+    assert detail["price_history"][0]["price_toman"] == 1_024
+    observed = [row["observed_at"] for row in detail["price_history"]]
+    assert observed == sorted(observed)
+
+
+def test_sort_without_a_discriminating_field_keeps_the_observed_rank_order(
+    session_factory, seeded_market
+):
+    with session_factory() as db:
+        service = AnalyticsService(db)
+        fallback = service.filtered_rankings(
+            period="current",
+            scope_key="global",
+            sort_type="best_selling",
+            q=None,
+            sort="-rank_improvement",
+            limit=10,
+            offset=0,
+        )
+        by_rank = service.filtered_rankings(
+            period="current",
+            scope_key="global",
+            sort_type="best_selling",
+            q=None,
+            sort="rank",
+            limit=10,
+            offset=0,
+        )
+    fallback_ranks = [item["current_rank"] for item in fallback["items"]]
+    assert fallback_ranks == [item["current_rank"] for item in by_rank["items"]]
+    assert fallback_ranks == sorted(fallback_ranks)
 
 
 def test_price_history_without_ranking_history_stays_separate(session_factory, seeded_market):

@@ -153,6 +153,7 @@ class AnalyticsService:
         if q:
             query = query.where(Product.title.ilike(f"%{q.strip()}%"))
         rows = self.session.execute(query).all()
+        stats = self._observation_stats(scope_key=scope_key, sort_type=sort_type)
         items: list[dict[str, Any]] = []
         for observation, product in rows:
             snapshot = self._latest_snapshot(product.id)
@@ -173,14 +174,17 @@ class AnalyticsService:
             rank_change = (
                 previous.rank_position - observation.rank_position if previous is not None else None
             )
+            observation_count, first_observed = stats.get(
+                product.id, (1, as_utc(observation.observed_at))
+            )
             items.append(
                 self._product_item(
                     product,
                     snapshot,
                     current_rank=observation.rank_position,
                     rank_change=rank_change,
-                    observation_count=1,
-                    first_observed=as_utc(observation.observed_at),
+                    observation_count=observation_count,
+                    first_observed=first_observed or as_utc(observation.observed_at),
                     last_observed=as_utc(observation.observed_at),
                     average_rank=float(observation.rank_position),
                     best_rank=observation.rank_position,
@@ -376,14 +380,18 @@ class AnalyticsService:
         product = self.session.get(Product, product_id)
         if not product:
             return None
+        # The window keeps the newest rows, not the oldest: the detail view
+        # answers "what is the latest known price and rank", so the newest
+        # observations are the ones that matter.
         snapshots = list(
             self.session.scalars(
                 select(Snapshot)
-                .where(Snapshot.product_id == product_id)
-                .order_by(Snapshot.observed_at, Snapshot.id)
+                .where(Snapshot.product_id == product_id, Snapshot.price_toman.is_not(None))
+                .order_by(Snapshot.observed_at.desc(), Snapshot.id.desc())
                 .limit(500)
             )
         )
+        snapshots.reverse()
         rankings = list(
             self.session.scalars(
                 select(RankObservation)
@@ -393,10 +401,11 @@ class AnalyticsService:
                     CollectionRun.status.in_(ELIGIBLE_STATUSES),
                     CollectionRun.items_saved > 0,
                 )
-                .order_by(RankObservation.observed_at, RankObservation.id)
+                .order_by(RankObservation.observed_at.desc(), RankObservation.id.desc())
                 .limit(500)
             )
         )
+        rankings.reverse()
         scopes = sorted({(row.scope_key, row.sort_type) for row in rankings})
         coverage = {
             key: {
@@ -405,7 +414,7 @@ class AnalyticsService:
             }
             for key, method in scopes
         }
-        latest_snapshot = snapshots[-1] if snapshots else None
+        latest_snapshot = self._latest_snapshot(product_id)
         return {
             "id": product.id,
             "external_id": product.external_id,
@@ -417,9 +426,7 @@ class AnalyticsService:
             "first_seen_at": as_utc(product.first_seen_at),
             "last_seen_at": as_utc(product.last_seen_at),
             "latest_snapshot": self._snapshot_dict(latest_snapshot),
-            "price_history": [
-                self._snapshot_dict(row) for row in snapshots if row.price_toman is not None
-            ],
+            "price_history": [self._snapshot_dict(row) for row in snapshots],
             "ranking_history": [
                 {
                     "observed_at": as_utc(row.observed_at),
@@ -549,6 +556,35 @@ class AnalyticsService:
             .limit(1)
         )
 
+    def _observation_stats(
+        self, *, scope_key: str, sort_type: str
+    ) -> dict[int, tuple[int, datetime | None]]:
+        """Observed count and first observation per product in one scope.
+
+        The current list reports how often each product was actually observed
+        in the scope, not a placeholder of one.
+        """
+
+        rows = self.session.execute(
+            select(
+                RankObservation.product_id,
+                func.count(RankObservation.id),
+                func.min(RankObservation.observed_at),
+            )
+            .join(CollectionRun, CollectionRun.id == RankObservation.collection_run_id)
+            .where(
+                RankObservation.scope_key == scope_key,
+                RankObservation.sort_type == sort_type,
+                CollectionRun.status.in_(ELIGIBLE_STATUSES),
+                CollectionRun.items_saved > 0,
+            )
+            .group_by(RankObservation.product_id)
+        ).all()
+        return {
+            product_id: (int(count), as_utc(first_observed))
+            for product_id, count, first_observed in rows
+        }
+
     @staticmethod
     def _snapshot_dict(snapshot: Snapshot | None) -> dict[str, Any] | None:
         if snapshot is None:
@@ -633,6 +669,11 @@ class AnalyticsService:
             "trend": "trend_score",
         }
         key = aliases.get(field, "current_rank")
+        if not AnalyticsService._can_order(items, key):
+            # The requested field cannot separate the rows in this period
+            # (it is missing everywhere, or identical everywhere). Keeping the
+            # observed rank order is honest; an arbitrary id order is not.
+            key, descending = "current_rank", False
 
         def value(item: dict[str, Any]) -> tuple[bool, Any, int]:
             raw = item.get(key)
@@ -643,18 +684,21 @@ class AnalyticsService:
                 sortable = raw
             if sortable is None:
                 return True, 0, int(item["id"])
-            adjusted = -sortable if descending and isinstance(sortable, (int, float)) else sortable
+            adjusted = -sortable if descending else sortable
             return False, adjusted, int(item["id"])
 
-        if descending and key == "last_observed":
-            return sorted(
-                items,
-                key=lambda item: (
-                    item.get(key) is None,
-                    -(item[key].timestamp()) if item.get(key) else 0,
-                    item["id"],
-                ),
-            )
-        if descending and key not in {"last_observed"}:
-            return sorted(items, key=value)
         return sorted(items, key=value)
+
+    @staticmethod
+    def _can_order(items: list[dict[str, Any]], key: str) -> bool:
+        """True when the field holds at least two distinct values."""
+
+        seen: list[Any] = []
+        for item in items:
+            raw = item.get(key)
+            if raw is None:
+                continue
+            marker = raw.timestamp() if isinstance(raw, datetime) else raw
+            if marker not in seen:
+                seen.append(marker)
+        return len(seen) > 1

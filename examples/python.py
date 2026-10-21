@@ -10,6 +10,8 @@ check use `python -m scripts.check_mcp --call-data`; for REST examples read
 
 The inherited examples/ licensing terms are in the repository LICENSE.
 """
+
+import contextlib
 import json
 import os
 import sys
@@ -32,7 +34,9 @@ class McpError(Exception):
 
 
 def rpc(method, params=None, rid=1, timeout=30):
-    body = json.dumps({"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}}).encode()
+    body = json.dumps(
+        {"jsonrpc": "2.0", "id": rid, "method": method, "params": params or {}}
+    ).encode()
     req = urllib.request.Request(
         ENDPOINT,
         data=body,
@@ -91,13 +95,17 @@ def card_text(card):
 
 def main():
     # Windows consoles default to cp1252 - Persian titles need UTF-8.
-    try:
+    with contextlib.suppress(AttributeError, ValueError):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    except Exception:
-        pass
     try:
-        init = rpc("initialize", {"protocolVersion": "2024-11-05", "capabilities": {},
-                                  "clientInfo": {"name": "py-client", "version": "1.0.0"}})
+        init = rpc(
+            "initialize",
+            {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {},
+                "clientInfo": {"name": "py-client", "version": "1.0.0"},
+            },
+        )
         server = (init.get("result") or {}).get("serverInfo") or {}
         print("server:", server.get("name", "?"), server.get("version", "?"))
         rpc("notifications/initialized", {}, rid=2)
@@ -105,8 +113,7 @@ def main():
         tools = rpc("tools/list", {}, rid=3).get("result", {}).get("tools", [])
         print(f"tools: {len(tools)}")
 
-        search = call_tool("search_digikala",
-                           {"query": "هدفون بی سیم", "limit": 3}, rid=4)
+        search = call_tool("search_digikala", {"query": "هدفون بی سیم", "limit": 3}, rid=4)
         if search.get("low_confidence"):
             print(f"note: low confidence, unmatched: {search.get('unmatched_terms')}")
         items = search.get("items") or []
@@ -120,10 +127,11 @@ def main():
         if first_id is None:
             print("first card has no id, skipping details.")
             return
-        data = call_tool("product_details",
-                         {"id": first_id, "include_specs": False}, rid=5)
+        data = call_tool("product_details", {"id": first_id, "include_specs": False}, rid=5)
         seller = (data.get("seller") or {}).get("name")
-        print(f"details id={data.get('id')} | seller: {seller} | warranty ok: {bool(data.get('warranty'))}")
+        print(
+            f"details id={data.get('id')} | seller: {seller} | warranty ok: {bool(data.get('warranty'))}"
+        )
     except McpError as e:
         print(f"error: {e}", file=sys.stderr)
         sys.exit(1)

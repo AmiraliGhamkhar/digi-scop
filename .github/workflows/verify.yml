@@ -1,15 +1,42 @@
-name: Live verify
+name: Verify
 
 on:
   schedule:
     - cron: "17 * * * *"
   workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
 
 jobs:
+  # Every push and pull request runs the test suite and the linter. A broken
+  # merge must not wait for the hourly live check to notice it.
+  test:
+    name: Tests and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install ruff==0.17.1
+      - name: Lint
+        run: ruff check .
+      - name: Format check
+        run: ruff format --check .
+      - name: Tests
+        run: pytest -q
+
   # A red badge must mean "broken". Digikala's CDN intermittently
   # challenges the Actions region, so a failed first run gets one
   # retry (after a cooldown) before the badge is allowed to go red.
   verify:
+    name: Live verify
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

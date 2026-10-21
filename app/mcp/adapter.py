@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
+from app.config import MAX_RANKING_LIMIT
 from app.mcp.client import MCPClient, MCPProtocolError
 from app.mcp.normalizer import (
     NormalizedPricePoint,
@@ -85,8 +86,8 @@ class DigikalaMCPAdapter(MarketDataAdapter):
         limit: int,
         sort_type: str = "best_selling",
     ) -> NormalizedRankingBatch:
-        if not 1 <= limit <= 50:
-            raise ValueError("ranking limit must be between 1 and 50")
+        if not 1 <= limit <= MAX_RANKING_LIMIT:
+            raise ValueError(f"ranking limit must be between 1 and {MAX_RANKING_LIMIT}")
         if scope_type == ScopeType.GLOBAL:
             if sort_type != "best_selling":
                 raise ValueError("the verified global tool only supports the best_selling method")

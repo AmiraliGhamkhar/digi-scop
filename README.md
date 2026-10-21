@@ -170,6 +170,9 @@ python -m scripts.collect --limit 20 --with-price-history
 
 # Collect a known category now (internal id from GET /api/categories)
 python -m scripts.collect --category-id 2 --limit 20
+
+# Skip the global scope (honoured with and without --category-id)
+python -m scripts.collect --no-global
 ```
 
 The first successful global collection stores category IDs returned by MCP.
@@ -278,9 +281,13 @@ errors; migrations and DB constraints/rollback/FKs; collection idempotency and
 locks; all requested analytics edge cases; every REST area, auth, CSV BOM and
 formula protection; and static RTL/responsive frontend contracts.
 
-Current documented baseline: **58 passed, 0 failed**. The normal suite performs
+Current documented baseline: **78 passed, 0 failed**. The normal suite performs
 no live Digikala requests. See [`docs/testing.md`](docs/testing.md) for the test
 matrix, static checks, browser verification, and live-smoke separation.
+
+Continuous integration (`.github/workflows/verify.yml`) runs `ruff check .`,
+`ruff format --check .` and `pytest -q` on every push and pull request, and the
+live MCP contract check on the hourly schedule.
 
 ## Database migrations, backup, and restore
 

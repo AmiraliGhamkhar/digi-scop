@@ -66,6 +66,20 @@ class CollectionOutcome:
     error: str | None = None
 
 
+def skipped_outcome(scope_key: str, error: str) -> CollectionOutcome:
+    """The shared shape of a scope that was not collected."""
+
+    return CollectionOutcome(
+        run_id=0,
+        scope_key=scope_key,
+        status="skipped",
+        items_fetched=0,
+        items_saved=0,
+        warnings=[],
+        error=error,
+    )
+
+
 class CollectionService:
     def __init__(
         self,
@@ -149,10 +163,13 @@ class CollectionService:
         *,
         limit: int | None = None,
         include_price_history: bool = False,
+        include_global: bool = True,
     ) -> list[CollectionOutcome]:
         self.ensure_default_scope()
         outcomes: list[CollectionOutcome] = []
         for scope in self.configured_scopes():
+            if not include_global and scope.scope_key == "global":
+                continue
             try:
                 outcomes.append(
                     await self.run_scope(
@@ -162,17 +179,7 @@ class CollectionService:
                     )
                 )
             except CollectionAlreadyRunning as exc:
-                outcomes.append(
-                    CollectionOutcome(
-                        run_id=0,
-                        scope_key=scope.scope_key,
-                        status="skipped",
-                        items_fetched=0,
-                        items_saved=0,
-                        warnings=[],
-                        error=str(exc),
-                    )
-                )
+                outcomes.append(skipped_outcome(scope.scope_key, str(exc)))
         return outcomes
 
     async def run_scope(

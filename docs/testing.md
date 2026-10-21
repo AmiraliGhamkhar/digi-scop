@@ -27,7 +27,7 @@ Without activating the virtualenv:
 Current baseline:
 
 ```text
-58 passed, 0 failed
+78 passed, 0 failed
 ```
 
 The installed FastAPI/Starlette test client may emit one non-failing dependency
@@ -46,11 +46,13 @@ node --check app/static/js/app.js
 If Ruff is installed for contribution checks:
 
 ```bash
-ruff format --check app scripts tests
-ruff check app scripts tests
+ruff format --check .
+ruff check .
 ```
 
-Ruff is intentionally not a runtime dependency.
+Ruff is intentionally not a runtime dependency, but the continuous-integration
+job installs it and runs both commands on the whole repository, so a new file
+that does not pass the linter blocks the merge.
 
 When Node package-registry access is available, validate maintained Markdown with
 the repository configuration:
@@ -65,11 +67,13 @@ npx --yes markdownlint-cli2
 |---|---|
 | `tests/test_mcp_client.py` | Initialization, notifications, discovery, session reuse, JSON/SSE, structured/text content, invalid JSON, JSON-RPC/tool/HTTP errors, timeout, rate limit, retries |
 | `tests/test_mcp_adapter.py` | Verified tool mapping, global cap, category pagination/slot offsets, price variants, required tools, numeric IDs |
-| `tests/test_database.py` | Clean schema, unique identity, snapshots/ranks, duplicate prevention, rollback, foreign keys, checks, Alembic upgrade/downgrade |
-| `tests/test_collection.py` | Normalization/persistence, history preservation, same-run idempotency, failed/partial runs, category scopes, price deduplication, locks |
-| `tests/test_analytics.py` | Improvement, worsening, unchanged, missing observations, failed runs, multi-category identity, insufficient history, incomplete coverage, price-only history |
+| `tests/test_normalizer.py` | Malformed numbers, formatted/Persian numbers, unusable identifiers, identity-less cards |
+| `tests/test_database.py` | Clean schema, unique identity, snapshots/ranks, duplicate prevention, rollback, foreign keys, checks, Alembic upgrade/downgrade, migrated category references |
+| `tests/test_collection.py` | Normalization/persistence, history preservation, same-run idempotency, failed/partial runs, category scopes, price deduplication, locks, global-scope opt-out |
+| `tests/test_analytics.py` | Improvement, worsening, unchanged, missing observations, failed runs, multi-category identity, insufficient history, incomplete coverage, price-only history, newest-row detail window, real observation counts, sort fallback |
 | `tests/test_api.py` | Every REST area, validation, filtering, pagination, empty/404 states, auth, burst guard, CSV BOM/formula safety, RTL/static contracts |
-| `tests/test_config.py` | Limit/timezone validation and production token requirements |
+| `tests/test_cli.py` | Collection CLI scope selection, `--no-global`, locked scopes, unknown categories, no raw tracebacks |
+| `tests/test_config.py` | Limit/timezone validation, the shared ranking cap, production token requirements |
 
 `tests/conftest.py` builds temporary SQLite databases and deterministic Persian
 fixtures. No test writes to the normal `data/digiscope.db`.
@@ -178,10 +182,27 @@ node scripts/verify-live.mjs
 
 It tests the hosted MCP project, not DigiScope persistence or analytics.
 
+## Continuous integration
+
+`.github/workflows/verify.yml` runs two jobs:
+
+- **Tests and lint** — every push and pull request installs the requirements and
+  Ruff, then runs `ruff check .`, `ruff format --check .` and `pytest -q`. A
+  broken merge cannot wait for the hourly live check to notice it.
+- **Live verify** — the hourly schedule and manual runs only. It checks the
+  hosted MCP contract, not DigiScope persistence or analytics.
+
+The live check compares the hosted service version against the oldest release
+whose contract DigiScope verified. It does not compare the service version with
+this repository's `CHANGELOG.md`, which tracks DigiScope application releases
+and can never match an upstream service version.
+
 ## Release validation checklist
 
 ```bash
 pytest -q
+ruff check .
+ruff format --check .
 python -m compileall -q app scripts tests
 node --check app/static/js/api.js
 node --check app/static/js/charts.js

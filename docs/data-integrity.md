@@ -57,6 +57,12 @@ or category scope. `products.category_id` is only a primary/first verified
 category; category analytics use `rank_observations.scope_id`, not that product
 column.
 
+A category that owns recorded observations cannot be deleted. The scope checks
+require a category scope to keep its category, so the foreign keys refuse the
+delete (`ON DELETE RESTRICT`) instead of nulling the reference and breaking the
+row. Deleting the observations first is the explicit, auditable path; a category
+with no recorded observations is still deletable.
+
 ## Ranking observations
 
 Every rank row records:
@@ -72,6 +78,18 @@ product or position being inserted twice for one scope/method.
 The current list is the latest run with status `success` or usable `partial` and
 at least one saved rank. The phrase **current observed ranking** should be used in
 user-facing text.
+
+In the current list, `observation_count` is the number of rank observations the
+product actually has in that scope and method, and `first_observed` is its
+earliest such observation. A product observed in four stored runs reports `4`,
+never a placeholder of `1`.
+
+## Ordering
+
+A list is ordered by the requested sort field. When that field cannot separate
+the rows of the requested period — it is missing everywhere, or identical
+everywhere, for example `rank_improvement` in a current list — the list keeps the
+observed rank order. An arbitrary product order is never presented as a ranking.
 
 ## Historical window selection
 
@@ -212,6 +230,19 @@ are stored as snapshots with:
 Repeated imports use a product/time/source/variant uniqueness check. Different
 variants at the same timestamp remain distinct. Price coverage does not increase
 ranking coverage.
+
+## Product detail window
+
+The product detail view answers "what is the latest known price and rank". Its
+history windows therefore hold the **newest** 500 price points and 500 rank
+observations, and `latest_snapshot` is the newest stored observation of the
+product. Older rows stay in the database and are reachable through the
+historical reports, but they must never be presented as the current state.
+
+A malformed upstream number (a price sent as a formatted or Persian string that
+cannot be read) costs only that field: the product keeps its observation with the
+field absent. A card is dropped only when it has no usable identity, so one bad
+price can never delete a whole ranking row.
 
 ## Missing and stale data
 
